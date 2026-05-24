@@ -1,0 +1,19 @@
+{% load quote_extras %}
+<tr id="quote-{{ quote.pk }}" class="hover:bg-slate-50">
+  <td class="px-4 py-3 font-medium"><a class="text-cyan-700" href="{% url 'quotes:quote_detail' quote.pk %}">{{ quote.number }}</a></td>
+  <td class="px-4 py-3">
+    <div class="font-medium">{{ quote.client }}</div>
+    <div class="text-xs text-slate-500">{{ quote.client.email }}</div>
+  </td>
+  <td class="px-4 py-3">{{ quote.issue_date }}</td>
+  <td class="px-4 py-3">{{ quote.total|currency }}</td>
+  <td class="px-4 py-3"><span class="rounded-full px-2 py-1 text-xs font-medium {{ quote.status|status_badge }}">{{ quote.get_status_display }}</span></td>
+  <td class="px-4 py-3 text-right">
+    <form method="post" action="{% url 'quotes:quote_toggle_favorite' quote.pk %}" class="inline" hx-post="{% url 'quotes:quote_toggle_favorite' quote.pk %}" hx-target="#quote-{{ quote.pk }}" hx-swap="outerHTML">
+      {% csrf_token %}
+      <button class="icon-button" title="Favorite" type="submit">
+        {% if quote.is_favorite %}<i data-lucide="star" class="h-4 w-4 fill-amber-400 text-amber-500"></i>{% else %}<i data-lucide="star" class="h-4 w-4"></i>{% endif %}
+      </button>
+    </form>
+  </td>
+</tr>

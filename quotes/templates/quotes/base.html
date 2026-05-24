@@ -1,0 +1,53 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Business Quote Generator{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script defer src="{% static 'js/toasts.js' %}"></script>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+  <div id="toast-stack" class="fixed right-4 top-4 z-50 flex w-80 flex-col gap-2"></div>
+  <header class="border-b border-slate-200 bg-white">
+    <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+      <a href="{% url 'quotes:dashboard' %}" class="flex items-center gap-2 text-sm font-semibold text-slate-950">
+        <i data-lucide="file-text" class="h-5 w-5 text-cyan-700"></i>
+        Business Quote Generator
+      </a>
+      <div class="flex items-center gap-2 text-sm">
+        {% if request.user.is_authenticated %}
+          <a class="nav-link" href="{% url 'quotes:quote_list' %}">Quotes</a>
+          <a class="nav-link" href="{% url 'quotes:client_list' %}">Clients</a>
+          <a class="nav-link" href="{% url 'quotes:catalog_list' %}">Catalog</a>
+          <a class="nav-link" href="{% url 'quotes:profile_settings' %}">Profile</a>
+          <form method="post" action="{% url 'logout' %}" class="inline">
+            {% csrf_token %}
+            <button class="icon-button" title="Log out" type="submit"><i data-lucide="log-out" class="h-4 w-4"></i></button>
+          </form>
+        {% else %}
+          <a class="nav-link" href="{% url 'login' %}">Log in</a>
+          <a class="button-primary" href="{% url 'quotes:signup' %}"><i data-lucide="user-plus" class="h-4 w-4"></i> Sign up</a>
+        {% endif %}
+      </div>
+    </nav>
+  </header>
+
+  {% if messages %}
+    <div class="mx-auto mt-4 max-w-7xl px-4 sm:px-6 lg:px-8">
+      {% for message in messages %}
+        <div class="mb-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+    {% block content %}{% endblock %}
+  </main>
+  <script>window.lucide && window.lucide.createIcons();</script>
+</body>
+</html>

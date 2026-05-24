@@ -1,0 +1,11 @@
+<div class="overflow-x-auto">
+  <table class="min-w-full divide-y divide-slate-200 text-sm">
+    <tbody class="divide-y divide-slate-100">
+      {% for item in items %}
+        {% include "quotes/partials/_catalog_row.html" %}
+      {% empty %}
+        <tr><td class="px-4 py-8 text-center text-slate-500">No catalog items yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

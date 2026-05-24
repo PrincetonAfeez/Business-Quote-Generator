@@ -1,0 +1,10 @@
+{% for event in page_obj.object_list %}
+  {% include "quotes/partials/_activity_event.html" %}
+{% empty %}
+  <li class="p-6 text-center text-sm text-slate-500">No activity yet.</li>
+{% endfor %}
+{% if page_obj.has_next %}
+  <li class="p-3 text-center" hx-get="?page={{ page_obj.next_page_number }}" hx-trigger="revealed" hx-swap="outerHTML">
+    <span class="text-sm text-slate-500">Loading more...</span>
+  </li>
+{% endif %}

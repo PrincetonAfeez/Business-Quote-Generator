@@ -1,0 +1,38 @@
+{% extends "quotes/base.html" %}
+{% load quote_extras %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-semibold">Dashboard</h1>
+    <p class="text-sm text-slate-500">Quote pipeline and recent client activity.</p>
+  </div>
+  <a href="{% url 'quotes:quote_create' %}" class="button-primary"><i data-lucide="plus" class="h-4 w-4"></i> New quote</a>
+</div>
+
+<section class="grid gap-4 md:grid-cols-4">
+  <article class="metric-card"><span>Outstanding</span><strong>{{ outstanding_count }}</strong><small>{{ outstanding_value|currency }}</small></article>
+  <article class="metric-card"><span>Accepted this month</span><strong>{{ accepted_month_count }}</strong><small>{{ accepted_month_value|currency }}</small></article>
+  <article class="metric-card"><span>Conversion</span><strong>{{ conversion_rate }}%</strong><small>Accepted over resolved</small></article>
+  <article class="metric-card"><span>Next 7 days</span><strong>{{ upcoming_expiries.count }}</strong><small>expiring quotes</small></article>
+</section>
+
+<section class="mt-8 grid gap-6 lg:grid-cols-[1fr_320px]">
+  <div>
+    <h2 class="mb-3 text-lg font-semibold">Recent activity</h2>
+    <ol id="activity-feed" class="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+      {% include "quotes/partials/_activity_feed_items.html" %}
+    </ol>
+  </div>
+  <aside>
+    <h2 class="mb-3 text-lg font-semibold">Upcoming expiries</h2>
+    <div class="space-y-3">
+      {% for quote in upcoming_expiries %}
+        {% include "quotes/partials/_quote_card.html" %}
+      {% empty %}
+        <p class="empty-state">No upcoming expiries.</p>
+      {% endfor %}
+    </div>
+  </aside>
+</section>
+{% endblock %}

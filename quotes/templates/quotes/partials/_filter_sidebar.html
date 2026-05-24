@@ -1,0 +1,26 @@
+<aside class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+  <form id="quote-filters" class="space-y-4" hx-get="{% url 'quotes:quote_list' %}" hx-target="#quote-feed" hx-trigger="change">
+    <div class="flex items-center justify-between">
+      <h2 class="font-semibold">Filters</h2>
+      <span class="text-sm text-slate-500">Favorites: <span id="favorite-count">{{ favorite_count }}</span></span>
+    </div>
+    <label class="block text-sm font-medium">Status</label>
+    <div class="grid gap-2 text-sm">
+      {% for value,label in statuses %}
+        <label class="flex items-center gap-2"><input type="checkbox" name="status" value="{{ value }}" {% if value in selected_statuses %}checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+    </div>
+    <label class="block text-sm font-medium">Client</label>
+    <select name="client" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+      <option value="">Any client</option>
+      {% for client in clients %}
+        <option value="{{ client.pk }}" {% if request.GET.client == client.pk|stringformat:"s" %}selected{% endif %}>{{ client }}</option>
+      {% endfor %}
+    </select>
+    <div class="grid gap-3">
+      <label class="text-sm font-medium">Start date <input class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" type="date" name="start" value="{{ request.GET.start }}"></label>
+      <label class="text-sm font-medium">End date <input class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" type="date" name="end" value="{{ request.GET.end }}"></label>
+    </div>
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="favorites" value="1" {% if request.GET.favorites %}checked{% endif %}> Favorites only</label>
+  </form>
+</aside>

@@ -1,0 +1,30 @@
+{% load quote_extras %}
+<div id="line-item-{{ item.pk }}" class="line-item rounded-md border border-slate-200 bg-slate-50 p-3" draggable="true">
+  <form class="grid gap-3 md:grid-cols-[1fr_110px_130px_120px_auto]" method="post"
+        hx-post="{% url 'quotes:line_item_update' quote.pk item.pk %}" hx-target="#line-item-{{ item.pk }}" hx-swap="outerHTML">
+    {% csrf_token %}
+    {% if form %}
+      {% include "quotes/partials/_line_item_form.html" %}
+    {% else %}
+      <div>
+        <label class="text-xs font-medium text-slate-500">Description</label>
+        <textarea name="description" rows="2" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">{{ item.description }}</textarea>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">Qty</label>
+        <input name="quantity" value="{{ item.quantity }}" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">Unit price</label>
+        <input name="unit_price" value="{{ item.unit_price }}" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+      </div>
+      <input type="hidden" name="position" value="{{ item.position }}">
+      <input type="hidden" name="catalog_item" value="{{ item.catalog_item_id|default:'' }}">
+      <div class="self-end font-semibold">{{ item.line_total|currency }}</div>
+    {% endif %}
+    <div class="flex items-end gap-2">
+      <button class="icon-button" title="Save line" type="submit"><i data-lucide="save" class="h-4 w-4"></i></button>
+      <button class="icon-button" title="Delete line" type="button" hx-post="{% url 'quotes:line_item_delete' quote.pk item.pk %}" hx-target="#line-item-{{ item.pk }}" hx-swap="outerHTML" hx-include="closest form"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+    </div>
+  </form>
+</div>

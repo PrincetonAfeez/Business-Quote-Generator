@@ -1,0 +1,10 @@
+{% load quote_extras %}
+<aside id="grand-total-panel" hx-swap-oob="true" class="rounded-md border border-slate-200 bg-white p-4 shadow-sm print:shadow-none">
+  <h2 class="mb-3 text-lg font-semibold">Totals</h2>
+  <dl class="space-y-2 text-sm">
+    <div class="flex justify-between"><dt>Subtotal</dt><dd>{{ quote.subtotal|currency }}</dd></div>
+    <div class="flex justify-between"><dt>Discount</dt><dd>-{{ quote.discount_amount|currency }}</dd></div>
+    <div class="flex justify-between"><dt>Tax</dt><dd>{{ quote.tax_amount|currency }}</dd></div>
+    <div class="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold"><dt>Total</dt><dd>{{ quote.total|currency }}</dd></div>
+  </dl>
+</aside>

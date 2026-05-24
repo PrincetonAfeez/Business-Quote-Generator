@@ -1,0 +1,11 @@
+<div class="overflow-x-auto">
+  <table class="min-w-full divide-y divide-slate-200 text-sm">
+    <tbody class="divide-y divide-slate-100">
+      {% for client in clients %}
+        {% include "quotes/partials/_client_row.html" %}
+      {% empty %}
+        <tr><td class="px-4 py-8 text-center text-slate-500">No clients yet. Create your first one.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -1,0 +1,7 @@
+<li class="p-4 text-sm">
+  <div class="flex items-center justify-between gap-3">
+    <p><a class="font-medium text-cyan-700" href="{% url 'quotes:quote_detail' event.quote.pk %}">{{ event.quote.number }}</a> {{ event.get_event_type_display|lower }}</p>
+    <time class="text-xs text-slate-500">{{ event.timestamp|date:"M j, g:i a" }}</time>
+  </div>
+  <p class="mt-1 text-slate-500">{{ event.quote.client }}</p>
+</li>

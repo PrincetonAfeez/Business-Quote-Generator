@@ -1,0 +1,62 @@
+[
+  {
+    "model": "auth.user",
+    "pk": 1,
+    "fields": {
+      "password": "pbkdf2_sha256$1000000$t2DqC5z6sCj9N8RFfYvCMA$sMUJSUVtRTuYOvRNAEK1gEWrGiB6SvsdPClNm5kcEcw=",
+      "last_login": null,
+      "is_superuser": false,
+      "username": "demo",
+      "first_name": "",
+      "last_name": "",
+      "email": "demo@example.com",
+      "is_staff": false,
+      "is_active": true,
+      "date_joined": "2026-01-01T00:00:00Z",
+      "groups": [],
+      "user_permissions": []
+    }
+  },
+  {
+    "model": "quotes.companyprofile",
+    "pk": 1,
+    "fields": {
+      "owner": 1,
+      "business_name": "Northstar Studio",
+      "logo": "",
+      "address": "100 Market Street\nSan Francisco, CA",
+      "tax_id": "US-12345",
+      "default_tax_rate": "8.25",
+      "default_terms": "Payment due within 15 days.",
+      "default_validity_days": 30
+    }
+  },
+  {
+    "model": "quotes.client",
+    "pk": 1,
+    "fields": {
+      "owner": 1,
+      "name": "Ada Lovelace",
+      "company": "Analytical Works",
+      "email": "ada@example.com",
+      "phone": "555-0100",
+      "billing_address": "1 Algorithm Way",
+      "notes": "Prefers email.",
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "quotes.catalogitem",
+    "pk": 1,
+    "fields": {
+      "owner": 1,
+      "name": "Discovery Workshop",
+      "description": "Half-day requirements and planning session.",
+      "default_unit_price": "750.00",
+      "unit": "each",
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  }
+]

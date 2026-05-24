@@ -1,0 +1,54 @@
+{% extends "quotes/base.html" %}
+{% load quote_extras %}
+{% block title %}{{ quote.number }}{% endblock %}
+{% block content %}
+<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+  <a class="text-sm text-cyan-700" href="{% url 'quotes:quote_list' %}">Back to quotes</a>
+  <div class="flex flex-wrap gap-2">
+    <a class="button-secondary" href="{% url 'quotes:quote_pdf' quote.pk %}"><i data-lucide="download" class="h-4 w-4"></i> PDF</a>
+    <form method="post" action="{% url 'quotes:quote_duplicate' quote.pk %}">{% csrf_token %}<button class="button-secondary" type="submit"><i data-lucide="copy" class="h-4 w-4"></i> Duplicate</button></form>
+    <form method="post" action="{% url 'quotes:quote_send' quote.pk %}">{% csrf_token %}<button class="button-primary" type="submit"><i data-lucide="send" class="h-4 w-4"></i> Send</button></form>
+    <form method="post" action="{% url 'quotes:quote_delete' quote.pk %}">{% csrf_token %}<button class="button-danger" type="submit"><i data-lucide="trash-2" class="h-4 w-4"></i> Delete</button></form>
+  </div>
+</div>
+
+<section class="grid gap-6 lg:grid-cols-[1fr_320px]">
+  <div class="space-y-6">
+    <div id="quote-header">
+      {% include "quotes/partials/_quote_header.html" %}
+    </div>
+
+    <section class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="mb-4 flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Line items</h2>
+        <span class="text-sm text-slate-500">{{ quote.line_items.count }} items</span>
+      </div>
+      <div id="line-items" class="space-y-3">
+        {% for item in quote.line_items.all %}
+          {% include "quotes/partials/_line_item_row.html" %}
+        {% empty %}
+          <p class="empty-state">No line items yet.</p>
+        {% endfor %}
+      </div>
+      <form class="mt-4 grid gap-3 md:grid-cols-[1fr_120px_140px_auto]" method="post"
+            hx-post="{% url 'quotes:line_item_add' quote.pk %}" hx-target="#line-items" hx-swap="beforeend">
+        {% csrf_token %}
+        {% include "quotes/partials/_line_item_form.html" with form=line_form %}
+        <button class="button-primary self-end" type="submit"><i data-lucide="plus" class="h-4 w-4"></i> Add</button>
+      </form>
+    </section>
+  </div>
+
+  <aside class="space-y-4">
+    {% include "quotes/partials/_grand_total_panel.html" %}
+    <div class="rounded-md border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <p class="mb-2 font-semibold">Public link</p>
+      {% if quote.public_token %}
+        <a class="break-all text-cyan-700" href="{{ quote.public_url }}">{{ request.scheme }}://{{ request.get_host }}{{ quote.public_url }}</a>
+      {% else %}
+        <p class="text-slate-500">Generated when the quote is sent.</p>
+      {% endif %}
+    </div>
+  </aside>
+</section>
+{% endblock %}

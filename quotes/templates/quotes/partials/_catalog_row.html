@@ -1,0 +1,26 @@
+{% load quote_extras %}
+<tr id="catalog-{{ item.pk }}">
+  <td class="px-4 py-3">
+    <p class="font-medium">{{ item.name }}</p>
+    <p class="text-xs text-slate-500">{{ item.description|truncatechars:90 }}</p>
+  </td>
+  <td class="px-4 py-3">{{ item.default_unit_price|currency }} / {{ item.get_unit_display }}</td>
+  <td class="px-4 py-3 text-right">
+    {% if draft_quotes %}
+      <form class="mb-2 inline-flex items-center gap-2" method="post" action="{% url 'quotes:catalog_add_to_quote' item.pk %}">
+        {% csrf_token %}
+        <select name="quote" class="rounded-md border border-slate-300 px-2 py-1 text-xs">
+          {% for quote in draft_quotes %}
+            <option value="{{ quote.pk }}">{{ quote.number }}</option>
+          {% endfor %}
+        </select>
+        <button class="icon-button" title="Add to quote" type="submit"><i data-lucide="plus" class="h-4 w-4"></i></button>
+      </form>
+    {% endif %}
+    <a class="button-secondary" href="{% url 'quotes:catalog_update' item.pk %}"><i data-lucide="pencil" class="h-4 w-4"></i> Edit</a>
+    <form class="inline" method="post" action="{% url 'quotes:catalog_delete' item.pk %}" hx-post="{% url 'quotes:catalog_delete' item.pk %}" hx-target="#catalog-{{ item.pk }}" hx-swap="outerHTML">
+      {% csrf_token %}
+      <button class="icon-button" title="Delete item" type="submit"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+    </form>
+  </td>
+</tr>
