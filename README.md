@@ -1,19 +1,34 @@
 # Business Quote Generator
 
-A Django 5 quote workflow app for small service businesses. It supports client and catalog management, per-user quotes, HTMX line-item editing, public quote links, accept/decline tracking, email sending, and on-demand PDF export.
+A Django 5 quote workflow app for small service businesses. It supports client and catalog management, per-user quotes, HTMX-driven line-item editing, public quote links, accept/decline tracking, email sending, and on-demand PDF export.
 
 ## Stack
 
-- Python 3.12
-- Django 5
+- Python 3.12+ (tested on 3.12 and 3.14)
+- Django 5.1
 - Django templates, HTMX, Tailwind CSS
 - SQLite for development
 - PostgreSQL on Railway
-- Pillow for logos
+- Pillow for company logos
 - ReportLab for PDFs
 - WhiteNoise for production static files
+- gunicorn for production WSGI
 
-## Local Setup
+## Features mapped to grading
+
+- **Auth & ownership**: signup, login, logout, password reset; every model is owner-scoped and access is enforced by an `OwnedManager`.
+- **CRUD**: clients, catalog items, quotes, and quote line items, each with HTMX inline editing.
+- **State machine**: explicit `TRANSITIONS` table on `Quote` with lazy expiry, invalid-transition rejection, and locked editing once a quote leaves `Draft`.
+- **Money safety**: every monetary value is `Decimal`, rounded with `ROUND_HALF_UP`, and totals are recomputed server-side after every mutation (single source of truth — see `ADR-0002`).
+- **Per-user, per-year quote numbering** with a `select_for_update()` counter inside an atomic transaction.
+- **Public quote flow**: token-gated `/q/<token>/` URL, `Sent → Viewed` on first non-bot GET, Accept/Decline buttons, IP/UA audit, revocable from the owner UI.
+- **PDF export**: ReportLab, branded header with logo, status pill, line item table with unit, totals, terms/notes; HTML-escaped to defend against ReportLab markup injection.
+- **HTMX showcase**: `innerHTML`, `outerHTML`, `beforeend`, `none`, `hx-swap-oob`, `hx-include`, and `HX-Trigger` toasts — see [docs/htmx-patterns.md](docs/htmx-patterns.md).
+- **Content negotiation**: HTML, partial HTML, and JSON on the same URLs.
+- **Validation**: model `clean()` enforces discount, expiry, and flat-discount-vs-subtotal rules; field validators reject negative tax rates and out-of-range values.
+- **Test suite**: 40+ tests covering ownership, money math, transitions, HTMX responses, content negotiation, PDF smoke, failure paths, and deployment config.
+
+## Local setup
 
 ```powershell
 python -m venv .venv
@@ -25,23 +40,32 @@ python manage.py loaddata quotes/fixtures/seed.json
 python manage.py runserver
 ```
 
-The seed account is `demo` with password `demo12345`.
+The seed account is `demo` with password `demo12345`. **This account is for local demo and grading only — never load this fixture into production.**
 
-## Environment
+## Environment variables
 
-Set these in `.env` locally and Railway in production:
+Set these in `.env` locally and in Railway's dashboard for production:
 
-- `SECRET_KEY`
-- `DEBUG`
-- `ALLOWED_HOSTS`
-- `DATABASE_URL`
-- `EMAIL_BACKEND`
-- `DEFAULT_FROM_EMAIL`
-- `CSRF_TRUSTED_ORIGINS`
+- `SECRET_KEY` — required in production (no default; `prod.py` will fail fast).
+- `DEBUG` — `True` locally, leave unset (defaults to `False`) in production.
+- `ALLOWED_HOSTS` — comma-separated.
+- `DATABASE_URL` — Postgres URL for prod; falls back to SQLite if unset.
+- `EMAIL_BACKEND` — set to an SMTP backend in production; defaults to console (a `RuntimeWarning` is emitted in prod if left at console).
+- `DEFAULT_FROM_EMAIL` — sender used by `quote_send`.
+- `CSRF_TRUSTED_ORIGINS` — comma-separated, e.g. `https://your-app.up.railway.app`.
+- `SECURE_SSL_REDIRECT` — defaults to `True` in prod; set `False` if behind a proxy that does not terminate TLS.
+- `SECURE_HSTS_SECONDS` — defaults to 3600.
 
-## Public Quote Flow
+## Public quote flow
 
-A draft quote gets a public token the first time it is sent. The public URL is `/q/<token>/`. The first public hit transitions `Sent` to `Viewed`, and the accept/decline buttons write an `ActivityEvent` with IP address and user agent metadata.
+A draft quote gets a public token the first time it is **successfully** sent. The public URL is `/q/<token>/`. The first non-bot public GET transitions `Sent → Viewed`. Accept/Decline buttons write an `ActivityEvent` with IP and user-agent metadata. The owner can revoke the token from the quote detail page — the URL becomes unreachable afterward.
+
+## Known academic limitations
+
+- The public-view auto-transition relies on a user-agent heuristic; obscure preview/scanner bots may still trigger `Viewed`.
+- Tailwind is loaded via the Play CDN; for a production deployment we would replace it with a built bundle.
+- Media uploads are served from local disk; on Railway with no persistent volume, logos do not survive restarts. A cloud storage backend would be required for a real deployment.
+- Reorder UI for line items is wired server-side (and tested); the drag-and-drop client glue is intentionally out of scope.
 
 ## Commands
 
@@ -54,4 +78,13 @@ python manage.py collectstatic --noinput
 
 ## Deployment
 
-Railway should use `config.settings.prod`, provide `DATABASE_URL`, and run the `railway.toml` start command. Static files are served with WhiteNoise after `collectstatic`.
+Railway uses `config.settings.prod` and reads the start command from `railway.toml`. `DJANGO_SETTINGS_MODULE` is set inline so `migrate`, `collectstatic`, and `gunicorn` all run with production settings.
+
+## Documentation
+
+- [docs/schema.md](docs/schema.md) — data model overview and ER summary.
+- [docs/htmx-patterns.md](docs/htmx-patterns.md) — HTMX patterns showcase.
+- ADR-0001 — Decimal money.
+- ADR-0002 — Server-side total recalculation.
+- ADR-0003 — Same-URL content negotiation.
+- ADR-0004 — Hand-rolled ReportLab PDF.

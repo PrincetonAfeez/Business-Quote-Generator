@@ -1,1 +1,1 @@
-web: python manage.py migrate && python manage.py collectstatic --noinput && gunicorn config.wsgi:application
+web: DJANGO_SETTINGS_MODULE=config.settings.prod python manage.py migrate && DJANGO_SETTINGS_MODULE=config.settings.prod python manage.py collectstatic --noinput && DJANGO_SETTINGS_MODULE=config.settings.prod gunicorn config.wsgi:application

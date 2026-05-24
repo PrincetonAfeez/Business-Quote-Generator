@@ -17,6 +17,23 @@ def qs_replace(context, **kwargs):
     return query.urlencode()
 
 
+@register.simple_tag(takes_context=True)
+def sort_link(context, column, default_dir="asc"):
+    """Toggle direction for the given column, or set it as the new sort key."""
+    request = context["request"]
+    current_sort = request.GET.get("sort", "issue_date")
+    current_dir = request.GET.get("dir", "desc")
+    if current_sort == column:
+        new_dir = "asc" if current_dir == "desc" else "desc"
+    else:
+        new_dir = default_dir
+    query = request.GET.copy()
+    query["sort"] = column
+    query["dir"] = new_dir
+    query.pop("page", None)
+    return query.urlencode()
+
+
 @register.filter
 def currency(value):
     return f"${money(value):,.2f}"

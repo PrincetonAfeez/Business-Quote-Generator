@@ -1,17 +1,22 @@
 <div>
   <label class="text-xs font-medium text-slate-500">Catalog</label>
   {{ form.catalog_item }}
+  {% if form.catalog_item.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.catalog_item.errors|join:" " }}</p>{% endif %}
 </div>
 <div>
   <label class="text-xs font-medium text-slate-500">Description</label>
   {{ form.description }}
+  {% if form.description.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.description.errors|join:" " }}</p>{% endif %}
 </div>
 <div>
   <label class="text-xs font-medium text-slate-500">Qty</label>
   {{ form.quantity }}
+  {% if form.quantity.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.quantity.errors|join:" " }}</p>{% endif %}
 </div>
 <div>
   <label class="text-xs font-medium text-slate-500">Unit price</label>
   {{ form.unit_price }}
+  {% if form.unit_price.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.unit_price.errors|join:" " }}</p>{% endif %}
 </div>
 {{ form.position }}
+{% if form.non_field_errors %}<p class="text-xs text-rose-600 md:col-span-4">{{ form.non_field_errors|join:" " }}</p>{% endif %}

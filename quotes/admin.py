@@ -50,6 +50,7 @@ class ActivityEventAdmin(admin.ModelAdmin):
     list_display = ("quote", "event_type", "timestamp")
     search_fields = ("quote__number",)
     list_filter = ("event_type", "timestamp")
+    list_select_related = ("quote",)
 
 
 @admin.register(QuoteCounter)

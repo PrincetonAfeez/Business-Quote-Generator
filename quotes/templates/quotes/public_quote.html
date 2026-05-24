@@ -1,4 +1,4 @@
-{% extends "quotes/base.html" %}
+{% extends "quotes/public_base.html" %}
 {% load quote_extras %}
 {% block title %}{{ quote.number }}{% endblock %}
 {% block content %}
@@ -21,7 +21,6 @@
       <p class="font-semibold">Client</p>
       <p>{{ quote.client.name }}</p>
       <p>{{ quote.client.company }}</p>
-      <p>{{ quote.client.email }}</p>
       <p>{{ quote.client.billing_address|linebreaksbr }}</p>
     </div>
     <div class="sm:text-right">
@@ -32,15 +31,19 @@
 
   <div class="divide-y divide-slate-100 border-y border-slate-200">
     {% for item in quote.line_items.all %}
-      <div class="grid gap-2 py-3 text-sm sm:grid-cols-[1fr_90px_110px_120px]">
+      <div class="grid gap-2 py-3 text-sm sm:grid-cols-[1fr_80px_80px_110px_120px]">
         <p>{{ item.description }}</p>
         <p>{{ item.quantity }}</p>
+        <p class="text-slate-500">{% if item.catalog_item %}{{ item.catalog_item.get_unit_display }}{% endif %}</p>
         <p>{{ item.unit_price|currency }}</p>
         <p class="font-medium">{{ item.line_total|currency }}</p>
       </div>
     {% endfor %}
   </div>
   {% include "quotes/partials/_grand_total_panel.html" %}
+  {% if transition_error %}
+    <p class="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{{ transition_error }}</p>
+  {% endif %}
   <div class="mt-5 flex flex-wrap gap-2">
     <a class="button-secondary" href="{% url 'quotes:public_quote_pdf' quote.public_token %}"><i data-lucide="download" class="h-4 w-4"></i> Download PDF</a>
     {% if quote.status == "sent" or quote.status == "viewed" %}

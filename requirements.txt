@@ -1,6 +1,7 @@
-Django>=5.0,<6.0
-psycopg[binary]>=3.1
-python-dotenv>=1.0
-Pillow>=10.0
-ReportLab>=4.0
-WhiteNoise>=6.6
+Django~=5.1
+psycopg[binary]~=3.2
+python-dotenv~=1.0
+Pillow~=11.0
+ReportLab~=4.2
+WhiteNoise~=6.7
+gunicorn~=23.0

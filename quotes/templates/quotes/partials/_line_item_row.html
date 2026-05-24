@@ -24,7 +24,7 @@
     {% endif %}
     <div class="flex items-end gap-2">
       <button class="icon-button" title="Save line" type="submit"><i data-lucide="save" class="h-4 w-4"></i></button>
-      <button class="icon-button" title="Delete line" type="button" hx-post="{% url 'quotes:line_item_delete' quote.pk item.pk %}" hx-target="#line-item-{{ item.pk }}" hx-swap="outerHTML" hx-include="closest form"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+      <button class="icon-button" title="Delete line" type="button" hx-post="{% url 'quotes:line_item_delete' quote.pk item.pk %}" hx-target="#line-item-{{ item.pk }}" hx-swap="outerHTML" hx-confirm="Delete this line item?"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
     </div>
   </form>
 </div>

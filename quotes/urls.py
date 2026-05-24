@@ -16,6 +16,7 @@ urlpatterns = [
     path("quotes/<int:pk>/delete/", views.quote_delete, name="quote_delete"),
     path("quotes/<int:pk>/duplicate/", views.quote_duplicate, name="quote_duplicate"),
     path("quotes/<int:pk>/send/", views.quote_send, name="quote_send"),
+    path("quotes/<int:pk>/revoke-link/", views.quote_revoke_public_link, name="quote_revoke_public_link"),
     path("quotes/<int:pk>/favorite/", views.quote_toggle_favorite, name="quote_toggle_favorite"),
     path("quotes/<int:pk>/pdf/", views.quote_pdf, name="quote_pdf"),
     path("quotes/<int:pk>/lines/add/", views.line_item_add, name="line_item_add"),

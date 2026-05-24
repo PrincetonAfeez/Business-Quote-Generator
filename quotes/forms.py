@@ -1,11 +1,12 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from .models import CatalogItem, Client, CompanyProfile, Quote, QuoteLineItem
+from .models import ActivityEvent, CatalogItem, Client, CompanyProfile, Quote, QuoteLineItem
 
 
 CONTROL_CLASS = "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-100"
@@ -93,6 +94,9 @@ class QuoteForm(OwnerFilteredModelForm):
     def __init__(self, *args, owner=None, **kwargs):
         super().__init__(*args, owner=owner, **kwargs)
         self.fields["client"].queryset = Client.objects.for_user(owner)
+        if self.instance and self.instance.pk:
+            self.fields["client"].disabled = True
+            self.fields["client"].help_text = "Client cannot be changed after the quote is created."
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -127,7 +131,7 @@ class QuoteCreateForm(TailwindFormMixin, forms.Form):
             tax_rate=profile.default_tax_rate if profile else 0,
             terms=profile.default_terms if profile else "",
         )
-        quote.record_event("created")
+        quote.record_event(ActivityEvent.EVENT_CREATED)
         return quote
 
 
@@ -153,8 +157,14 @@ class QuoteLineItemForm(TailwindFormMixin, forms.ModelForm):
         if item:
             if not cleaned.get("description"):
                 cleaned["description"] = item.description or item.name
-            if not cleaned.get("unit_price"):
+            if cleaned.get("unit_price") is None:
                 cleaned["unit_price"] = item.default_unit_price
         if not cleaned.get("description"):
             raise forms.ValidationError("Add a description or pick a catalog item.")
+        quantity = cleaned.get("quantity")
+        unit_price = cleaned.get("unit_price")
+        if quantity is not None and quantity < Decimal("0.01"):
+            self.add_error("quantity", "Quantity must be greater than zero.")
+        if unit_price is not None and unit_price < Decimal("0"):
+            self.add_error("unit_price", "Unit price cannot be negative.")
         return cleaned

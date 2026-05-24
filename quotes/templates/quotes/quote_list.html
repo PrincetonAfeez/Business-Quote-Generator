@@ -21,11 +21,11 @@
       <table class="min-w-full divide-y divide-slate-200 text-sm">
         <thead class="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th class="px-4 py-3"><a href="?{% qs_replace sort='number' dir='asc' %}">Number</a></th>
-            <th class="px-4 py-3"><a href="?{% qs_replace sort='client' dir='asc' %}">Client</a></th>
-            <th class="px-4 py-3"><a href="?{% qs_replace sort='issue_date' dir='desc' %}">Issue date</a></th>
-            <th class="px-4 py-3"><a href="?{% qs_replace sort='total' dir='desc' %}">Total</a></th>
-            <th class="px-4 py-3"><a href="?{% qs_replace sort='status' dir='asc' %}">Status</a></th>
+            <th class="px-4 py-3"><a href="?{% sort_link 'number' 'asc' %}">Number</a></th>
+            <th class="px-4 py-3"><a href="?{% sort_link 'client' 'asc' %}">Client</a></th>
+            <th class="px-4 py-3"><a href="?{% sort_link 'issue_date' 'desc' %}">Issue date</a></th>
+            <th class="px-4 py-3"><a href="?{% sort_link 'total' 'desc' %}">Total</a></th>
+            <th class="px-4 py-3"><a href="?{% sort_link 'status' 'asc' %}">Status</a></th>
             <th class="px-4 py-3"></th>
           </tr>
         </thead>

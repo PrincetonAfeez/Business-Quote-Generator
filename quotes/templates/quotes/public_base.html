@@ -1,0 +1,28 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>{% block title %}Quote{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+  <header class="border-b border-slate-200 bg-white">
+    <div class="mx-auto flex max-w-4xl items-center px-4 py-3 sm:px-6">
+      <span class="flex items-center gap-2 text-sm font-semibold text-slate-950">
+        <i data-lucide="file-text" class="h-5 w-5 text-cyan-700"></i>
+        Quote
+      </span>
+    </div>
+  </header>
+  <main class="mx-auto max-w-4xl px-4 py-6 sm:px-6">
+    {% block content %}{% endblock %}
+  </main>
+  <script>window.lucide && window.lucide.createIcons();</script>
+</body>
+</html>

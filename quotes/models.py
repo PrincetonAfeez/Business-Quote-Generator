@@ -2,6 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.urls import reverse
 from django.utils import timezone
@@ -36,7 +37,12 @@ class CompanyProfile(models.Model):
     logo = models.ImageField(upload_to="logos/", blank=True, null=True)
     address = models.TextField(blank=True)
     tax_id = models.CharField(max_length=80, blank=True)
-    default_tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    default_tax_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+    )
     default_terms = models.TextField(blank=True)
     default_validity_days = models.PositiveIntegerField(default=30)
 
@@ -61,6 +67,13 @@ class Client(models.Model):
 
     class Meta:
         ordering = ["name", "company"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "email"],
+                condition=~models.Q(email=""),
+                name="unique_client_email_per_owner",
+            )
+        ]
 
     def __str__(self):
         return self.company or self.name
@@ -96,7 +109,12 @@ class CatalogItem(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="catalog_items")
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    default_unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    default_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
     unit = models.CharField(max_length=20, choices=UNIT_CHOICES, default=UNIT_EACH)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -174,7 +192,12 @@ class Quote(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     issue_date = models.DateField(default=timezone.localdate)
     expiry_date = models.DateField()
-    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    tax_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+    )
     discount_type = models.CharField(max_length=20, choices=DISCOUNT_CHOICES, default=DISCOUNT_NONE)
     discount_value = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
@@ -217,13 +240,15 @@ class Quote(models.Model):
             raise ValidationError({"discount_value": "Discount cannot be negative."})
         if self.discount_type == self.DISCOUNT_PERCENT and self.discount_value > 100:
             raise ValidationError({"discount_value": "Percent discount cannot exceed 100."})
+        if self.issue_date and self.expiry_date and self.expiry_date <= self.issue_date:
+            raise ValidationError({"expiry_date": "Expiry date must be after the issue date."})
+        if self.discount_type == self.DISCOUNT_FLAT and self.pk and self.discount_value > self.subtotal:
+            raise ValidationError({"discount_value": "Flat discount cannot exceed the subtotal."})
 
     def save(self, *args, **kwargs):
-        if not self.number:
-            self.number = self._next_number()
-        super().save(*args, **kwargs)
-
-    def _next_number(self):
+        if self.number:
+            super().save(*args, **kwargs)
+            return
         if not self.owner_id:
             raise ValueError("Quote owner is required before numbering.")
         year = (self.issue_date or timezone.localdate()).year
@@ -235,7 +260,8 @@ class Quote(models.Model):
             )
             counter.last_number += 1
             counter.save(update_fields=["last_number"])
-        return f"Q-{year}-{counter.last_number:04d}"
+            self.number = f"Q-{year}-{counter.last_number:04d}"
+            super().save(*args, **kwargs)
 
     def ensure_public_token(self):
         if self.public_token:
@@ -250,7 +276,8 @@ class Quote(models.Model):
     def calculate_totals(self, save=False):
         subtotal = Decimal("0.00")
         if self.pk:
-            subtotal = sum((item.line_total for item in self.line_items.all()), Decimal("0.00"))
+            aggregated = self.line_items.aggregate(total=models.Sum("line_total"))["total"]
+            subtotal = aggregated or Decimal("0.00")
         subtotal = money(subtotal)
 
         if self.discount_value < 0:
@@ -280,7 +307,7 @@ class Quote(models.Model):
     def transition_to(self, new_status, event_type=None, metadata=None):
         if new_status == self.status:
             return
-        allowed = self.TRANSITIONS[self.status]
+        allowed = self.TRANSITIONS.get(self.status, set())
         if new_status not in allowed:
             raise InvalidTransition(f"Cannot transition quote {self.number} from {self.status} to {new_status}.")
 
@@ -308,11 +335,16 @@ class Quote(models.Model):
         ActivityEvent.objects.create(quote=self, event_type=event_type, metadata=metadata or {})
 
     def duplicate_for_owner(self):
+        today = timezone.localdate()
+        validity_days = (self.expiry_date - self.issue_date).days if self.issue_date and self.expiry_date else 0
+        if validity_days <= 0:
+            profile = CompanyProfile.objects.filter(owner=self.owner).first()
+            validity_days = profile.default_validity_days if profile else 30
         clone = Quote.objects.create(
             owner=self.owner,
             client=self.client,
-            issue_date=timezone.localdate(),
-            expiry_date=self.expiry_date,
+            issue_date=today,
+            expiry_date=today + timezone.timedelta(days=validity_days),
             tax_rate=self.tax_rate,
             discount_type=self.discount_type,
             discount_value=self.discount_value,
@@ -358,8 +390,18 @@ class QuoteLineItem(models.Model):
     quote = models.ForeignKey(Quote, on_delete=models.CASCADE, related_name="line_items")
     catalog_item = models.ForeignKey(CatalogItem, on_delete=models.SET_NULL, blank=True, null=True)
     description = models.TextField()
-    quantity = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("1.00"))
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("1.00"),
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
     line_total = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"), editable=False)
     position = models.PositiveIntegerField(default=0)
 

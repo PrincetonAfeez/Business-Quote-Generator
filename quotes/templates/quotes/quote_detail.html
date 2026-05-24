@@ -8,7 +8,10 @@
     <a class="button-secondary" href="{% url 'quotes:quote_pdf' quote.pk %}"><i data-lucide="download" class="h-4 w-4"></i> PDF</a>
     <form method="post" action="{% url 'quotes:quote_duplicate' quote.pk %}">{% csrf_token %}<button class="button-secondary" type="submit"><i data-lucide="copy" class="h-4 w-4"></i> Duplicate</button></form>
     <form method="post" action="{% url 'quotes:quote_send' quote.pk %}">{% csrf_token %}<button class="button-primary" type="submit"><i data-lucide="send" class="h-4 w-4"></i> Send</button></form>
-    <form method="post" action="{% url 'quotes:quote_delete' quote.pk %}">{% csrf_token %}<button class="button-danger" type="submit"><i data-lucide="trash-2" class="h-4 w-4"></i> Delete</button></form>
+    {% if quote.public_token %}
+      <form method="post" action="{% url 'quotes:quote_revoke_public_link' quote.pk %}" onsubmit="return confirm('Revoke the public link? The current URL will stop working.');">{% csrf_token %}<button class="button-secondary" type="submit"><i data-lucide="link-2-off" class="h-4 w-4"></i> Revoke link</button></form>
+    {% endif %}
+    <form method="post" action="{% url 'quotes:quote_delete' quote.pk %}" onsubmit="return confirm('Remove quote {{ quote.number }} from the active list?');">{% csrf_token %}<button class="button-danger" type="submit"><i data-lucide="trash-2" class="h-4 w-4"></i> Delete</button></form>
   </div>
 </div>
 
@@ -26,12 +29,14 @@
       <div id="line-items" class="space-y-3">
         {% for item in quote.line_items.all %}
           {% include "quotes/partials/_line_item_row.html" %}
-        {% empty %}
-          <p class="empty-state">No line items yet.</p>
         {% endfor %}
       </div>
+      {% if not quote.line_items.all %}
+        <p id="line-items-empty" class="empty-state">No line items yet.</p>
+      {% endif %}
       <form class="mt-4 grid gap-3 md:grid-cols-[1fr_120px_140px_auto]" method="post"
-            hx-post="{% url 'quotes:line_item_add' quote.pk %}" hx-target="#line-items" hx-swap="beforeend">
+            hx-post="{% url 'quotes:line_item_add' quote.pk %}" hx-target="#line-items" hx-swap="beforeend"
+            hx-on::after-request="if (event.detail.successful) this.reset();">
         {% csrf_token %}
         {% include "quotes/partials/_line_item_form.html" with form=line_form %}
         <button class="button-primary self-end" type="submit"><i data-lucide="plus" class="h-4 w-4"></i> Add</button>

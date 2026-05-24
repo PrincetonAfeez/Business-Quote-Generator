@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from decimal import Decimal
 
 from django.contrib import messages
@@ -7,7 +8,8 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db import models, transaction
+from django.db.models import ProtectedError, Q, Sum
 from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -63,12 +65,43 @@ def get_quote(user, pk):
     return quote
 
 
+EDITABLE_QUOTE_STATUSES = {Quote.STATUS_DRAFT}
+
+
+def quote_is_editable(quote):
+    return quote.archived_at is None and quote.status in EDITABLE_QUOTE_STATUSES
+
+
 def favorite_count(user):
     return Quote.objects.for_user(user).filter(is_favorite=True, archived_at__isnull=True).count()
 
 
 def profile_for(user):
     return CompanyProfile.objects.for_user(user).first()
+
+
+def _parse_iso_date(value):
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+BOT_UA_MARKERS = ("bot", "spider", "crawler", "preview", "slackbot", "facebookexternalhit", "linkpreview", "discordbot", "twitterbot", "whatsapp")
+
+
+def client_ip(request):
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def is_probable_bot(request):
+    ua = request.META.get("HTTP_USER_AGENT", "").lower()
+    return any(marker in ua for marker in BOT_UA_MARKERS)
 
 
 def quote_queryset_from_request(request):
@@ -87,10 +120,13 @@ def quote_queryset_from_request(request):
 
     client_id = request.GET.get("client")
     if client_id:
-        quotes = quotes.filter(client_id=client_id)
+        try:
+            quotes = quotes.filter(client_id=int(client_id))
+        except (TypeError, ValueError):
+            pass
 
-    start = request.GET.get("start")
-    end = request.GET.get("end")
+    start = _parse_iso_date(request.GET.get("start"))
+    end = _parse_iso_date(request.GET.get("end"))
     if start:
         quotes = quotes.filter(issue_date__gte=start)
     if end:
@@ -154,15 +190,22 @@ def dashboard(request):
         accepted_at__year=timezone.now().year,
         accepted_at__month=timezone.now().month,
     )
-    resolved = quotes.filter(status__in=[Quote.STATUS_ACCEPTED, Quote.STATUS_DECLINED, Quote.STATUS_EXPIRED])
-    accepted_count = resolved.filter(status=Quote.STATUS_ACCEPTED).count()
-    conversion_rate = int((accepted_count / resolved.count()) * 100) if resolved.count() else 0
+    resolved_counts = quotes.filter(
+        status__in=[Quote.STATUS_ACCEPTED, Quote.STATUS_DECLINED, Quote.STATUS_EXPIRED]
+    ).aggregate(
+        total=models.Count("id"),
+        accepted=models.Count("id", filter=Q(status=Quote.STATUS_ACCEPTED)),
+    )
+    resolved_total = resolved_counts["total"] or 0
+    conversion_rate = int((resolved_counts["accepted"] / resolved_total) * 100) if resolved_total else 0
     upcoming_expiries = outstanding.filter(expiry_date__lte=timezone.localdate() + timezone.timedelta(days=7))
+    outstanding_stats = outstanding.aggregate(count=models.Count("id"), value=Sum("total"))
+    accepted_stats = accepted_month.aggregate(count=models.Count("id"), value=Sum("total"))
     context = {
-        "outstanding_count": outstanding.count(),
-        "outstanding_value": sum((q.total for q in outstanding), Decimal("0.00")),
-        "accepted_month_count": accepted_month.count(),
-        "accepted_month_value": sum((q.total for q in accepted_month), Decimal("0.00")),
+        "outstanding_count": outstanding_stats["count"] or 0,
+        "outstanding_value": outstanding_stats["value"] or Decimal("0.00"),
+        "accepted_month_count": accepted_stats["count"] or 0,
+        "accepted_month_value": accepted_stats["value"] or Decimal("0.00"),
         "conversion_rate": conversion_rate,
         "page_obj": page_obj,
         "upcoming_expiries": upcoming_expiries,
@@ -199,6 +242,9 @@ def quote_list(request):
 
 @login_required
 def quote_create(request):
+    if not Client.objects.for_user(request.user).exists():
+        messages.info(request, "Add a client before creating a quote.")
+        return redirect("quotes:client_create")
     if request.method == "POST":
         form = QuoteCreateForm(request.POST, owner=request.user)
         if form.is_valid():
@@ -215,7 +261,7 @@ def quote_detail(request, pk):
     quote = get_quote(request.user, pk)
     if wants_json(request):
         return JsonResponse(quote.to_dict())
-    line_form = QuoteLineItemForm(owner=request.user, initial={"position": quote.line_items.count() + 1})
+    line_form = QuoteLineItemForm(owner=request.user, initial={"position": len(quote.line_items.all()) + 1})
     form = QuoteForm(instance=quote, owner=request.user)
     context = {
         "quote": quote,
@@ -231,6 +277,14 @@ def quote_detail(request, pk):
 @require_POST
 def quote_update(request, pk):
     quote = get_quote(request.user, pk)
+    if not quote_is_editable(quote):
+        response = render(
+            request,
+            "quotes/partials/_quote_header.html",
+            {"quote": quote, "form": QuoteForm(instance=quote, owner=request.user)},
+            status=409,
+        )
+        return add_toast(response, f"Quote {quote.number} is locked and cannot be edited.", "error")
     form = QuoteForm(request.POST, instance=quote, owner=request.user)
     if form.is_valid():
         quote = form.save()
@@ -261,6 +315,20 @@ def quote_delete(request, pk):
 
 @login_required
 @require_POST
+def quote_revoke_public_link(request, pk):
+    quote = get_quote(request.user, pk)
+    if not quote.public_token:
+        messages.info(request, f"{quote.number} has no public link to revoke.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    quote.public_token = None
+    quote.save(update_fields=["public_token", "updated_at"])
+    quote.record_event(ActivityEvent.EVENT_EDITED, {"action": "public_link_revoked"})
+    messages.success(request, f"Public link for {quote.number} revoked.")
+    return redirect("quotes:quote_detail", pk=quote.pk)
+
+
+@login_required
+@require_POST
 def quote_duplicate(request, pk):
     quote = get_quote(request.user, pk)
     clone = quote.duplicate_for_owner()
@@ -272,6 +340,19 @@ def quote_duplicate(request, pk):
 @require_POST
 def quote_send(request, pk):
     quote = get_quote(request.user, pk)
+    if Quote.STATUS_SENT not in Quote.TRANSITIONS.get(quote.status, set()):
+        messages.error(request, f"Quote {quote.number} cannot be sent from status '{quote.get_status_display()}'.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    if not quote.client.email:
+        messages.error(request, f"Add an email address for {quote.client} before sending.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    if not quote.line_items.exists():
+        messages.error(request, "Add at least one line item before sending the quote.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    if quote.total <= 0:
+        messages.error(request, "Quote total must be greater than zero before sending.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    token_was_empty = not quote.public_token
     try:
         quote.ensure_public_token()
         public_url = request.build_absolute_uri(quote.public_url)
@@ -279,13 +360,18 @@ def quote_send(request, pk):
             subject=f"Quote {quote.number} from {profile_for(request.user) or request.user}",
             message=f"Hello {quote.client.name},\n\nYour quote is ready:\n{public_url}\n\nThank you.",
             from_email=None,
-            recipient_list=[quote.client.email] if quote.client.email else [],
+            recipient_list=[quote.client.email],
             fail_silently=False,
         )
         quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT, {"public_url": public_url})
         messages.success(request, f"{quote.number} sent.")
     except InvalidTransition as exc:
         messages.error(request, str(exc))
+    except Exception as exc:
+        if token_was_empty:
+            quote.public_token = None
+            quote.save(update_fields=["public_token", "updated_at"])
+        messages.error(request, f"Could not send {quote.number}: {exc}")
     return redirect("quotes:quote_detail", pk=quote.pk)
 
 
@@ -295,6 +381,9 @@ def quote_toggle_favorite(request, pk):
     quote = get_quote(request.user, pk)
     quote.is_favorite = not quote.is_favorite
     quote.save(update_fields=["is_favorite", "updated_at"])
+    if not is_hx(request):
+        messages.info(request, "Favorite updated.")
+        return redirect("quotes:quote_list")
     response = render(
         request,
         "quotes/partials/_quote_row_response.html",
@@ -317,6 +406,12 @@ def quote_pdf(request, pk):
 @require_POST
 def line_item_add(request, pk):
     quote = get_quote(request.user, pk)
+    if not quote_is_editable(quote):
+        return add_toast(
+            HttpResponse("", status=409),
+            f"Quote {quote.number} is locked and cannot be edited.",
+            "error",
+        )
     form = QuoteLineItemForm(request.POST, owner=request.user)
     if form.is_valid():
         item = form.save(commit=False)
@@ -338,6 +433,12 @@ def line_item_add(request, pk):
 @require_POST
 def line_item_update(request, pk, item_pk):
     quote = get_quote(request.user, pk)
+    if not quote_is_editable(quote):
+        return add_toast(
+            HttpResponse("", status=409),
+            f"Quote {quote.number} is locked and cannot be edited.",
+            "error",
+        )
     item = get_owned(QuoteLineItem, request.user, item_pk, quote=quote)
     form = QuoteLineItemForm(request.POST, instance=item, owner=request.user)
     if form.is_valid():
@@ -357,6 +458,12 @@ def line_item_update(request, pk, item_pk):
 @require_POST
 def line_item_delete(request, pk, item_pk):
     quote = get_quote(request.user, pk)
+    if not quote_is_editable(quote):
+        return add_toast(
+            HttpResponse("", status=409),
+            f"Quote {quote.number} is locked and cannot be edited.",
+            "error",
+        )
     item = get_owned(QuoteLineItem, request.user, item_pk, quote=quote)
     item.delete()
     quote.record_event(ActivityEvent.EVENT_EDITED, {"line_item": item_pk, "action": "deleted"})
@@ -373,14 +480,19 @@ def line_item_delete(request, pk, item_pk):
 @require_POST
 def line_item_reorder(request, pk):
     quote = get_quote(request.user, pk)
+    if not quote_is_editable(quote):
+        return add_toast(
+            HttpResponse("", status=409),
+            f"Quote {quote.number} is locked and cannot be edited.",
+            "error",
+        )
     ids = request.POST.getlist("item")
     if not ids:
         return HttpResponseBadRequest("No item order supplied.")
-    items = {str(item.id): item for item in quote.line_items.all()}
-    for index, item_id in enumerate(ids, start=1):
-        if item_id in items:
+    with transaction.atomic():
+        for index, item_id in enumerate(ids, start=1):
             QuoteLineItem.objects.filter(pk=item_id, quote=quote).update(position=index)
-    quote.record_event(ActivityEvent.EVENT_EDITED, {"action": "reordered"})
+        quote.record_event(ActivityEvent.EVENT_EDITED, {"action": "reordered"})
     return add_toast(HttpResponse(""), "Line items reordered.", "info")
 
 
@@ -427,7 +539,14 @@ def client_update(request, pk):
 @require_POST
 def client_delete(request, pk):
     client = get_owned(Client, request.user, pk)
-    client.delete()
+    try:
+        client.delete()
+    except ProtectedError:
+        msg = f"Cannot delete {client} because they are referenced by existing quotes."
+        if is_hx(request):
+            return add_toast(HttpResponse("", status=409), msg, "error")
+        messages.error(request, msg)
+        return redirect("quotes:client_list")
     if is_hx(request):
         return add_toast(HttpResponse(""), "Client deleted.")
     messages.success(request, "Client deleted.")
@@ -489,12 +608,19 @@ def catalog_delete(request, pk):
 @require_POST
 def catalog_add_to_quote(request, pk):
     item = get_owned(CatalogItem, request.user, pk)
-    quote = get_quote(request.user, request.POST.get("quote"))
+    quote_pk = request.POST.get("quote")
+    if not quote_pk or not quote_pk.isdigit():
+        messages.error(request, "Pick a quote before adding a catalog item.")
+        return redirect("quotes:catalog_list")
+    quote = get_quote(request.user, int(quote_pk))
+    if not quote_is_editable(quote):
+        messages.error(request, f"Quote {quote.number} is locked and cannot be edited.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
     line_item = QuoteLineItem.objects.create(
         quote=quote,
         catalog_item=item,
         description=item.description or item.name,
-        quantity=1,
+        quantity=Decimal("1.00"),
         unit_price=item.default_unit_price,
         position=quote.line_items.count() + 1,
     )
@@ -507,6 +633,8 @@ def public_quote(request, token):
     quote = get_object_or_404(Quote.objects.select_related("client", "owner").prefetch_related("line_items"), public_token=token)
     quote.check_expiry()
     quote.refresh_from_db()
+    public_audit = {"ip": client_ip(request), "user_agent": request.META.get("HTTP_USER_AGENT", "")}
+    transition_error = None
     if request.method == "POST":
         action = request.POST.get("action")
         if action not in {"accept", "decline"}:
@@ -514,31 +642,30 @@ def public_quote(request, token):
         status = Quote.STATUS_ACCEPTED if action == "accept" else Quote.STATUS_DECLINED
         event = ActivityEvent.EVENT_ACCEPTED if action == "accept" else ActivityEvent.EVENT_DECLINED
         try:
-            quote.transition_to(
-                status,
-                event,
-                {
-                    "ip": request.META.get("REMOTE_ADDR", ""),
-                    "user_agent": request.META.get("HTTP_USER_AGENT", ""),
-                },
-            )
-        except InvalidTransition:
-            pass
+            quote.transition_to(status, event, public_audit)
+        except InvalidTransition as exc:
+            transition_error = str(exc)
         quote.refresh_from_db()
         if is_hx(request):
-            return render(request, "quotes/partials/_public_thank_you.html", {"quote": quote})
-    elif quote.status == Quote.STATUS_SENT:
-        quote.transition_to(
-            Quote.STATUS_VIEWED,
-            ActivityEvent.EVENT_VIEWED,
-            {"ip": request.META.get("REMOTE_ADDR", ""), "user_agent": request.META.get("HTTP_USER_AGENT", "")},
-        )
+            return render(
+                request,
+                "quotes/partials/_public_thank_you.html",
+                {"quote": quote, "transition_error": transition_error},
+            )
+    elif quote.status == Quote.STATUS_SENT and not is_probable_bot(request):
+        quote.transition_to(Quote.STATUS_VIEWED, ActivityEvent.EVENT_VIEWED, public_audit)
         quote.refresh_from_db()
-    return render(request, "quotes/public_quote.html", {"quote": quote, "profile": profile_for(quote.owner)})
+    return render(
+        request,
+        "quotes/public_quote.html",
+        {"quote": quote, "profile": profile_for(quote.owner), "transition_error": transition_error},
+    )
 
 
 def public_quote_pdf(request, token):
     quote = get_object_or_404(Quote.objects.select_related("client", "owner").prefetch_related("line_items"), public_token=token)
+    quote.check_expiry()
+    quote.refresh_from_db()
     buffer = render_quote_pdf(quote, profile_for(quote.owner))
     response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="{quote.number}.pdf"'
