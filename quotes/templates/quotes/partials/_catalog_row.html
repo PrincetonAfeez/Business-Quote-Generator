@@ -18,7 +18,7 @@
       </form>
     {% endif %}
     <a class="button-secondary" href="{% url 'quotes:catalog_update' item.pk %}"><i data-lucide="pencil" class="h-4 w-4"></i> Edit</a>
-    <form class="inline" method="post" action="{% url 'quotes:catalog_delete' item.pk %}" hx-post="{% url 'quotes:catalog_delete' item.pk %}" hx-target="#catalog-{{ item.pk }}" hx-swap="outerHTML" hx-confirm="Delete catalog item {{ item.name }}?" onsubmit="return confirm('Delete catalog item {{ item.name }}?');">
+    <form class="inline" method="post" action="{% url 'quotes:catalog_delete' item.pk %}" hx-post="{% url 'quotes:catalog_delete' item.pk %}" hx-target="#catalog-{{ item.pk }}" hx-swap="outerHTML" hx-confirm="Delete catalog item {{ item.name }}?">
       {% csrf_token %}
       <button class="icon-button" title="Delete item" type="submit"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
     </form>

@@ -7,7 +7,7 @@
   <td class="px-4 py-3">{{ client.phone }}</td>
   <td class="px-4 py-3 text-right">
     <a class="button-secondary" href="{% url 'quotes:client_update' client.pk %}"><i data-lucide="pencil" class="h-4 w-4"></i> Edit</a>
-    <form class="inline" method="post" action="{% url 'quotes:client_delete' client.pk %}" hx-post="{% url 'quotes:client_delete' client.pk %}" hx-target="#client-{{ client.pk }}" hx-swap="outerHTML" hx-confirm="Delete client {{ client }}?" onsubmit="return confirm('Delete client {{ client }}?');">
+    <form class="inline" method="post" action="{% url 'quotes:client_delete' client.pk %}" hx-post="{% url 'quotes:client_delete' client.pk %}" hx-target="#client-{{ client.pk }}" hx-swap="outerHTML" hx-confirm="Delete client {{ client }}?">
       {% csrf_token %}
       <button class="icon-button" title="Delete client" type="submit"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
     </form>

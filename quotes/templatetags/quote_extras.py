@@ -1,6 +1,6 @@
 from django import template
 
-from quotes.models import money
+from quotes.models import Quote, money
 
 
 register = template.Library()
@@ -34,9 +34,23 @@ def sort_link(context, column, default_dir="asc"):
     return query.urlencode()
 
 
+@register.simple_tag(takes_context=True)
+def sort_indicator(context, column):
+    request = context["request"]
+    if request.GET.get("sort", "issue_date") != column:
+        return ""
+    return "↑" if request.GET.get("dir", "desc") == "asc" else "↓"
+
+
 @register.filter
 def currency(value):
     return f"${money(value):,.2f}"
+
+
+@register.filter
+def quote_has_status(quote, names):
+    allowed = {getattr(Quote, f"STATUS_{name.strip().upper()}") for name in names.split(",")}
+    return quote.status in allowed
 
 
 @register.filter

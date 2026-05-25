@@ -1,0 +1,5 @@
+{% for quote in quotes %}
+  {% include "quotes/partials/_quote_row.html" %}
+{% empty %}
+  <tr><td colspan="6" class="px-4 py-8 text-center text-sm text-slate-500">No quotes yet. Create your first one.</td></tr>
+{% endfor %}

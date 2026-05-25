@@ -8,9 +8,9 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.db import models, transaction
-from django.db.models import ProtectedError, Q, Sum
-from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.db import transaction
+from django.db.models import Count, ProtectedError, Q, Sum
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -89,7 +89,7 @@ def _parse_iso_date(value):
         return None
 
 
-BOT_UA_MARKERS = ("bot", "spider", "crawler", "preview", "slackbot", "facebookexternalhit", "linkpreview", "discordbot", "twitterbot", "whatsapp")
+BOT_UA_MARKERS = ("bot", "spider", "crawler", "slackbot", "facebookexternalhit", "linkpreview", "link-preview", "preview-bot", "discordbot", "twitterbot", "whatsapp")
 
 
 def client_ip(request):
@@ -163,6 +163,8 @@ def quote_list_context(request):
 
 
 def signup(request):
+    if request.user.is_authenticated:
+        return redirect("quotes:dashboard")
     if request.method == "POST":
         form = SignupForm(request.POST)
         if form.is_valid():
@@ -193,14 +195,14 @@ def dashboard(request):
     resolved_counts = quotes.filter(
         status__in=[Quote.STATUS_ACCEPTED, Quote.STATUS_DECLINED, Quote.STATUS_EXPIRED]
     ).aggregate(
-        total=models.Count("id"),
-        accepted=models.Count("id", filter=Q(status=Quote.STATUS_ACCEPTED)),
+        total=Count("id"),
+        accepted=Count("id", filter=Q(status=Quote.STATUS_ACCEPTED)),
     )
     resolved_total = resolved_counts["total"] or 0
     conversion_rate = int((resolved_counts["accepted"] / resolved_total) * 100) if resolved_total else 0
     upcoming_expiries = outstanding.filter(expiry_date__lte=timezone.localdate() + timezone.timedelta(days=7))
-    outstanding_stats = outstanding.aggregate(count=models.Count("id"), value=Sum("total"))
-    accepted_stats = accepted_month.aggregate(count=models.Count("id"), value=Sum("total"))
+    outstanding_stats = outstanding.aggregate(count=Count("id"), value=Sum("total"))
+    accepted_stats = accepted_month.aggregate(count=Count("id"), value=Sum("total"))
     context = {
         "outstanding_count": outstanding_stats["count"] or 0,
         "outstanding_value": outstanding_stats["value"] or Decimal("0.00"),
@@ -235,7 +237,6 @@ def quote_list(request):
     if wants_json(request):
         return JsonResponse({"count": context["total_count"], "results": [quote.to_dict() for quote in context["quotes"]]})
     if is_hx(request):
-        context["oob"] = True
         return render(request, "quotes/partials/_quote_feed.html", context)
     return render(request, "quotes/quote_list.html", context)
 
@@ -369,8 +370,11 @@ def quote_send(request, pk):
         messages.error(request, str(exc))
     except Exception as exc:
         if token_was_empty:
-            quote.public_token = None
-            quote.save(update_fields=["public_token", "updated_at"])
+            try:
+                quote.public_token = None
+                quote.save(update_fields=["public_token", "updated_at"])
+            except Exception:
+                pass
         messages.error(request, f"Could not send {quote.number}: {exc}")
     return redirect("quotes:quote_detail", pk=quote.pk)
 
@@ -489,8 +493,14 @@ def line_item_reorder(request, pk):
     ids = request.POST.getlist("item")
     if not ids:
         return HttpResponseBadRequest("No item order supplied.")
+    parsed_ids = []
+    for item_id in ids:
+        try:
+            parsed_ids.append(int(item_id))
+        except (TypeError, ValueError):
+            return HttpResponseBadRequest("Invalid line item id.")
     with transaction.atomic():
-        for index, item_id in enumerate(ids, start=1):
+        for index, item_id in enumerate(parsed_ids, start=1):
             QuoteLineItem.objects.filter(pk=item_id, quote=quote).update(position=index)
         quote.record_event(ActivityEvent.EVENT_EDITED, {"action": "reordered"})
     return add_toast(HttpResponse(""), "Line items reordered.", "info")
@@ -612,7 +622,11 @@ def catalog_add_to_quote(request, pk):
     if not quote_pk or not quote_pk.isdigit():
         messages.error(request, "Pick a quote before adding a catalog item.")
         return redirect("quotes:catalog_list")
-    quote = get_quote(request.user, int(quote_pk))
+    try:
+        quote = get_quote(request.user, int(quote_pk))
+    except (Http404, PermissionDenied):
+        messages.error(request, "Pick a quote before adding a catalog item.")
+        return redirect("quotes:catalog_list")
     if not quote_is_editable(quote):
         messages.error(request, f"Quote {quote.number} is locked and cannot be edited.")
         return redirect("quotes:quote_detail", pk=quote.pk)
@@ -666,7 +680,7 @@ def public_quote_pdf(request, token):
     quote = get_object_or_404(Quote.objects.select_related("client", "owner").prefetch_related("line_items"), public_token=token)
     quote.check_expiry()
     quote.refresh_from_db()
-    buffer = render_quote_pdf(quote, profile_for(quote.owner))
+    buffer = render_quote_pdf(quote, profile_for(quote.owner), include_client_email=False)
     response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="{quote.number}.pdf"'
     return response

@@ -4,7 +4,8 @@ A Django 5 quote workflow app for small service businesses. It supports client a
 
 ## Stack
 
-- Python 3.12+ (tested on 3.12 and 3.14)
+- **Python 3.12.7** — pinned in `runtime.txt` for Railway deployment
+- **Python 3.14** — used for local development and CI; the app is tested on both
 - Django 5.1
 - Django templates, HTMX, Tailwind CSS
 - SQLite for development
@@ -88,3 +89,4 @@ Railway uses `config.settings.prod` and reads the start command from `railway.to
 - ADR-0002 — Server-side total recalculation.
 - ADR-0003 — Same-URL content negotiation.
 - ADR-0004 — Hand-rolled ReportLab PDF.
+- ADR-0005 — USD-only currency (internationalization out of scope).

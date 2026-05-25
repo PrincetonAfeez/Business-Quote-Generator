@@ -7,7 +7,7 @@
     <div>
       <p class="text-sm text-slate-500">Quote</p>
       <h1 class="text-3xl font-semibold">{{ quote.number }}</h1>
-      <span class="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium {{ quote.status|status_badge }}">{{ quote.get_status_display }}</span>
+      <span id="public-quote-status" class="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium {{ quote.status|status_badge }}">{{ quote.get_status_display }}</span>
     </div>
     <div class="text-right text-sm text-slate-600">
       <p class="font-semibold text-slate-900">{{ profile.business_name|default:"Business Quote" }}</p>
@@ -46,7 +46,7 @@
   {% endif %}
   <div class="mt-5 flex flex-wrap gap-2">
     <a class="button-secondary" href="{% url 'quotes:public_quote_pdf' quote.public_token %}"><i data-lucide="download" class="h-4 w-4"></i> Download PDF</a>
-    {% if quote.status == "sent" or quote.status == "viewed" %}
+    {% if quote|quote_has_status:"sent,viewed" %}
       <form id="public-actions" method="post" hx-post="{% url 'quotes:public_quote' quote.public_token %}" hx-target="#public-actions" hx-swap="outerHTML">
         {% csrf_token %}
         <button class="button-primary" name="action" value="accept" type="submit"><i data-lucide="check" class="h-4 w-4"></i> Accept</button>

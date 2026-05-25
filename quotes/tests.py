@@ -62,7 +62,9 @@ class MoneyAndModelTests(QuoteTestMixin, TestCase):
         self.assertEqual(quote.total, Decimal("0.00"))
 
     def test_negative_discount_is_rejected(self):
-        quote = self.make_quote(discount_type=Quote.DISCOUNT_FLAT, discount_value=Decimal("-1.00"))
+        quote = self.make_quote()
+        Quote.objects.filter(pk=quote.pk).update(discount_type=Quote.DISCOUNT_FLAT, discount_value=Decimal("-1.00"))
+        quote.refresh_from_db()
         with self.assertRaises(ValueError):
             quote.calculate_totals()
 
@@ -100,7 +102,9 @@ class MoneyAndModelTests(QuoteTestMixin, TestCase):
         self.assertEqual(quote.activity_events.filter(event_type=ActivityEvent.EVENT_ACCEPTED).count(), 1)
 
     def test_lazy_expiry_marks_open_quote_expired(self):
-        quote = self.make_quote(expiry_date=timezone.localdate() - timedelta(days=1))
+        quote = self.make_quote(issue_date=timezone.localdate() - timedelta(days=30))
+        Quote.objects.filter(pk=quote.pk).update(expiry_date=timezone.localdate() - timedelta(days=1))
+        quote.refresh_from_db()
         quote.check_expiry()
         quote.refresh_from_db()
         self.assertEqual(quote.status, Quote.STATUS_EXPIRED)
@@ -290,7 +294,9 @@ class FailurePathTests(QuoteTestMixin, TestCase):
         self.assertEqual(quote.line_items.count(), 1)
 
     def test_public_pdf_applies_expiry(self):
-        quote = self.make_quote(expiry_date=timezone.localdate() - timedelta(days=1))
+        quote = self.make_quote(issue_date=timezone.localdate() - timedelta(days=30))
+        Quote.objects.filter(pk=quote.pk).update(expiry_date=timezone.localdate() - timedelta(days=1))
+        quote.refresh_from_db()
         QuoteLineItem.objects.create(quote=quote, description="Late", quantity=1, unit_price=Decimal("10.00"))
         quote.ensure_public_token()
         quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
@@ -326,6 +332,73 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         response = self.client.get(reverse("quotes:dashboard"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Outstanding")
+
+    def test_dashboard_hx_returns_activity_feed_partial(self):
+        quote = self.make_quote()
+        quote.record_event(ActivityEvent.EVENT_CREATED)
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:dashboard"), HTTP_HX_REQUEST="true")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "<html")
+        self.assertContains(response, quote.number)
+
+    def test_profile_settings_creates_profile_for_user(self):
+        CompanyProfile.objects.filter(owner=self.user).delete()
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:profile_settings"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Company profile")
+        self.client.post(
+            reverse("quotes:profile_settings"),
+            {
+                "business_name": "Acme Studio",
+                "address": "1 Main St",
+                "tax_id": "",
+                "default_tax_rate": "8.25",
+                "default_terms": "Net 30",
+                "default_validity_days": "30",
+            },
+        )
+        profile = CompanyProfile.objects.get(owner=self.user)
+        self.assertEqual(profile.business_name, "Acme Studio")
+
+    def test_signup_redirects_when_already_authenticated(self):
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:signup"))
+        self.assertRedirects(response, reverse("quotes:dashboard"))
+
+    def test_catalog_add_to_quote_unknown_quote_redirects(self):
+        item = CatalogItem.objects.create(owner=self.user, name="Workshop", default_unit_price=Decimal("100.00"))
+        other_quote = Quote.objects.create(
+            owner=self.other,
+            client=self.other_client,
+            issue_date=timezone.localdate(),
+            expiry_date=timezone.localdate() + timedelta(days=30),
+        )
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:catalog_add_to_quote", args=[item.pk]),
+            {"quote": str(other_quote.pk)},
+        )
+        self.assertRedirects(response, reverse("quotes:catalog_list"))
+        self.assertFalse(QuoteLineItem.objects.filter(quote=other_quote, catalog_item=item).exists())
+
+    def test_quote_has_status_template_filter(self):
+        from quotes.templatetags.quote_extras import quote_has_status
+
+        quote = self.make_quote(status=Quote.STATUS_SENT)
+        self.assertTrue(quote_has_status(quote, "sent,viewed"))
+        self.assertFalse(quote_has_status(quote, "accepted"))
+
+    def test_hx_quote_feed_oob_elements_are_not_table_rows(self):
+        self.make_quote()
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:quote_list"), HTTP_HX_REQUEST="true")
+        content = response.content.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("hx-swap-oob", content)
+        self.assertIn("<tr", content)
+        self.assertNotIn("<tbody", content)
 
     def test_quote_create_redirects_when_no_clients_exist(self):
         Quote.objects.all().delete()
@@ -513,6 +586,29 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         rendered = template.render(Context({"request": request}))
         self.assertIn("sort=total", rendered)
         self.assertIn("dir=asc", rendered)
+
+    def test_sort_indicator_shows_active_direction(self):
+        from django.template import Context, Template
+        from django.test import RequestFactory
+        from quotes.templatetags.quote_extras import sort_indicator
+
+        request = RequestFactory().get("/", {"sort": "total", "dir": "asc"})
+        self.assertEqual(sort_indicator(Context({"request": request}), "total"), "↑")
+        self.assertEqual(sort_indicator(Context({"request": request}), "client"), "")
+
+    def test_password_reset_templates_render(self):
+        response = self.client.get(reverse("password_reset"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reset password")
+
+        response = self.client.get(reverse("password_reset_done"))
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(reverse("password_reset_complete"))
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(reverse("password_reset_confirm", args=["bad", "bad-token"]))
+        self.assertEqual(response.status_code, 200)
 
 
 class DeploymentConfigTests(TestCase):

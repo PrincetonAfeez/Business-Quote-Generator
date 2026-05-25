@@ -6,7 +6,7 @@
 
 ## `innerHTML`
 
-The search fields on quote, client, and catalog lists target the feed/table containers and replace their inner content.
+The search fields on quote, client, and catalog lists target the feed/table containers and replace their inner content. Search and filter forms use `hx-push-url="true"` so filtered views are bookmarkable and the back button restores the previous query string.
 
 ## `outerHTML`
 
@@ -18,7 +18,11 @@ New quote line items append to `#line-items` with `hx-swap="beforeend"`. The das
 
 ## `none`
 
-The reorder endpoint accepts posted positions and returns an empty response with an `HX-Trigger` toast. It is the fire-and-forget pattern for an action with no visual body.
+The line-item reorder endpoint returns an empty body with an `HX-Trigger` toast. It is the fire-and-forget pattern for an action whose only visible feedback is the toast notification.
+
+## Public quote `Sent → Viewed`
+
+The public quote page transitions `Sent → Viewed` on the first non-bot **full page GET** to `/q/<token>/`. This is not an HTMX request — it runs in the `elif` branch of `public_quote()` when the visitor loads the quote normally. Preview bots are filtered by user-agent heuristics in `is_probable_bot()`.
 
 ## `hx-swap-oob`
 

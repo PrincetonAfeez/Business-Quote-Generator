@@ -242,10 +242,15 @@ class Quote(models.Model):
             raise ValidationError({"discount_value": "Percent discount cannot exceed 100."})
         if self.issue_date and self.expiry_date and self.expiry_date <= self.issue_date:
             raise ValidationError({"expiry_date": "Expiry date must be after the issue date."})
-        if self.discount_type == self.DISCOUNT_FLAT and self.pk and self.discount_value > self.subtotal:
-            raise ValidationError({"discount_value": "Flat discount cannot exceed the subtotal."})
+        if self.discount_type == self.DISCOUNT_FLAT and self.pk:
+            aggregated = self.line_items.aggregate(total=models.Sum("line_total"))["total"]
+            current_subtotal = aggregated or Decimal("0.00")
+            if self.discount_value > current_subtotal:
+                raise ValidationError({"discount_value": "Flat discount cannot exceed the subtotal."})
 
     def save(self, *args, **kwargs):
+        if kwargs.get("update_fields") is None:
+            self.full_clean()
         if self.number:
             super().save(*args, **kwargs)
             return
@@ -387,6 +392,8 @@ class Quote(models.Model):
 
 
 class QuoteLineItem(models.Model):
+    # Totals are recalculated in save()/delete(). QuerySet.update() bypasses those
+    # hooks — use only for fields that do not affect line_total (e.g. position).
     quote = models.ForeignKey(Quote, on_delete=models.CASCADE, related_name="line_items")
     catalog_item = models.ForeignKey(CatalogItem, on_delete=models.SET_NULL, blank=True, null=True)
     description = models.TextField()

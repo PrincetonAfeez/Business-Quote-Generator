@@ -1,0 +1,5 @@
+<p id="quote-count" hx-swap-oob="true" class="text-sm text-slate-500">{{ total_count }} quotes</p>
+<div id="quote-pagination" hx-swap-oob="true" class="border-t border-slate-200 p-3">
+  {% include "quotes/partials/_pagination.html" %}
+</div>
+{% include "quotes/partials/_favorite_count.html" %}

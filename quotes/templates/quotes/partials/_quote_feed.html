@@ -1,12 +1,2 @@
-{% for quote in quotes %}
-  {% include "quotes/partials/_quote_row.html" %}
-{% empty %}
-  <tr><td colspan="6" class="px-4 py-8 text-center text-sm text-slate-500">No quotes yet. Create your first one.</td></tr>
-{% endfor %}
-{% if oob %}
-  <p id="quote-count" hx-swap-oob="true" class="text-sm text-slate-500">{{ total_count }} quotes</p>
-  <div id="quote-pagination" hx-swap-oob="true" class="border-t border-slate-200 p-3">
-    {% include "quotes/partials/_pagination.html" %}
-  </div>
-  {% include "quotes/partials/_favorite_count.html" %}
-{% endif %}
+{% include "quotes/partials/_quote_feed_rows.html" %}
+{% include "quotes/partials/_quote_feed_oob.html" %}

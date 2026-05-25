@@ -13,10 +13,11 @@ def _safe(text):
 
 
 def _safe_multiline(text):
+    # ReportLab renders <br/> in Normal/Body styles but not in Title — keep titles single-line.
     return _safe(text).replace("\n", "<br/>")
 
 
-def render_quote_pdf(quote, profile=None):
+def render_quote_pdf(quote, profile=None, *, include_client_email=True):
     buffer = BytesIO()
     document = SimpleDocTemplate(buffer, pagesize=LETTER, rightMargin=48, leftMargin=48, topMargin=42, bottomMargin=42)
     styles = getSampleStyleSheet()
@@ -40,7 +41,9 @@ def render_quote_pdf(quote, profile=None):
     story.append(Paragraph(f"Status: <b>{_safe(quote.get_status_display())}</b>", styles["Normal"]))
     story.append(Spacer(1, 0.25 * inch))
 
-    client_lines = [quote.client.name, quote.client.company, quote.client.email, quote.client.billing_address]
+    client_lines = [quote.client.name, quote.client.company, quote.client.billing_address]
+    if include_client_email:
+        client_lines.insert(2, quote.client.email)
     client_block = "<br/>".join(_safe(line) for line in client_lines if line)
     meta = [
         ["Quote", quote.number],
@@ -80,7 +83,7 @@ def render_quote_pdf(quote, profile=None):
     story.append(Spacer(1, 0.25 * inch))
 
     totals = [
-        ["Subtotal", f"${quote.subtotal:,.2f}"],
+        ["Subtotal", f"${quote.subtotal:,.2f}"],  # USD only — see docs/adr-0005-usd-only-currency.md
         ["Discount", f"-${quote.discount_amount:,.2f}"],
         ["Tax", f"${quote.tax_amount:,.2f}"],
         ["Total", f"${quote.total:,.2f}"],

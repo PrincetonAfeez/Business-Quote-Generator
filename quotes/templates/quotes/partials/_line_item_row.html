@@ -1,5 +1,5 @@
 {% load quote_extras %}
-<div id="line-item-{{ item.pk }}" class="line-item rounded-md border border-slate-200 bg-slate-50 p-3" draggable="true">
+<div id="line-item-{{ item.pk }}" class="line-item rounded-md border border-slate-200 bg-slate-50 p-3">
   <form class="grid gap-3 md:grid-cols-[1fr_110px_130px_120px_auto]" method="post"
         hx-post="{% url 'quotes:line_item_update' quote.pk item.pk %}" hx-target="#line-item-{{ item.pk }}" hx-swap="outerHTML">
     {% csrf_token %}

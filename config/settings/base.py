@@ -12,10 +12,12 @@ if load_dotenv:
     load_dotenv(BASE_DIR / ".env")
 
 LOG_DIR = BASE_DIR / "logs"
-LOG_DIR.mkdir(exist_ok=True)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-local-business-quote-generator")
 DEBUG = os.getenv("DEBUG", "False").lower() in {"1", "true", "yes", "on"}
+if DEBUG:
+    LOG_DIR.mkdir(exist_ok=True)
+
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()]
 
 INSTALLED_APPS = [

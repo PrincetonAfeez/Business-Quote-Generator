@@ -1,8 +1,10 @@
+{% load quote_extras %}
 {% if transition_error %}
   <div id="public-actions" class="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
     {{ transition_error }}
   </div>
 {% else %}
+  <span id="public-quote-status" hx-swap-oob="true" class="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium {{ quote.status|status_badge }}">{{ quote.get_status_display }}</span>
   <div id="public-actions" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
     Thank you. This quote is now {{ quote.get_status_display|lower }}.
   </div>
