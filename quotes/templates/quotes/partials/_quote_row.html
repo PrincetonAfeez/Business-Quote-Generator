@@ -11,8 +11,8 @@
   <td class="px-4 py-3 text-right">
     <form method="post" action="{% url 'quotes:quote_toggle_favorite' quote.pk %}" class="inline" hx-post="{% url 'quotes:quote_toggle_favorite' quote.pk %}" hx-target="#quote-{{ quote.pk }}" hx-swap="outerHTML">
       {% csrf_token %}
-      <button class="icon-button" title="Favorite" type="submit">
-        {% if quote.is_favorite %}<i data-lucide="star" class="h-4 w-4 fill-amber-400 text-amber-500"></i>{% else %}<i data-lucide="star" class="h-4 w-4"></i>{% endif %}
+      <button class="icon-button" type="submit" aria-label="{% if quote.is_favorite %}Remove from favorites{% else %}Add to favorites{% endif %}">
+        {% if quote.is_favorite %}<i data-lucide="star" class="h-4 w-4 fill-amber-400 text-amber-500" aria-hidden="true"></i>{% else %}<i data-lucide="star" class="h-4 w-4" aria-hidden="true"></i>{% endif %}
       </button>
     </form>
   </td>

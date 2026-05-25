@@ -19,6 +19,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
       - name: Run tests
-        run: python manage.py test quotes.tests
+        run: pytest
+      - name: Django deploy check (prod settings)
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.prod
+          SECRET_KEY: ci-deploy-check-secret-key-with-fifty-plus-characters-minimum
+          DATABASE_URL: postgres://user:pass@localhost:5432/dbname
+          EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+          ALLOWED_HOSTS: example.com
+        run: python manage.py check --deploy

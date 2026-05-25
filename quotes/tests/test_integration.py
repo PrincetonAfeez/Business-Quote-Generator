@@ -6,7 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import ActivityEvent, CatalogItem, Client, CompanyProfile, InvalidTransition, Quote, QuoteLineItem
+from quotes.models import ActivityEvent, CatalogItem, Client, CompanyProfile, InvalidTransition, Quote, QuoteLineItem
 
 
 class QuoteTestMixin:
@@ -62,11 +62,40 @@ class MoneyAndModelTests(QuoteTestMixin, TestCase):
         self.assertEqual(quote.total, Decimal("0.00"))
 
     def test_negative_discount_is_rejected(self):
+        from django.core.exceptions import ValidationError
+
         quote = self.make_quote()
         Quote.objects.filter(pk=quote.pk).update(discount_type=Quote.DISCOUNT_FLAT, discount_value=Decimal("-1.00"))
         quote.refresh_from_db()
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValidationError):
             quote.calculate_totals()
+
+    def test_none_discount_with_positive_value_rejected_on_save(self):
+        from django.core.exceptions import ValidationError
+
+        quote = self.make_quote()
+        quote.discount_type = Quote.DISCOUNT_NONE
+        quote.discount_value = Decimal("10.00")
+        with self.assertRaises(ValidationError):
+            quote.full_clean()
+
+    def test_flat_discount_exceeding_subtotal_rejected_on_first_save(self):
+        from django.core.exceptions import ValidationError
+
+        quote = Quote(
+            owner=self.user,
+            client=self.client_record,
+            issue_date=timezone.localdate(),
+            expiry_date=timezone.localdate() + timedelta(days=30),
+            discount_type=Quote.DISCOUNT_FLAT,
+            discount_value=Decimal("50.00"),
+        )
+        with self.assertRaises(ValidationError):
+            quote.full_clean()
+
+    def test_client_email_normalized_to_lowercase(self):
+        client = Client.objects.create(owner=self.user, name="Case Test", email="Mixed@Example.COM")
+        self.assertEqual(client.email, "mixed@example.com")
 
     def test_save_rejects_expiry_on_or_before_issue_date(self):
         from django.core.exceptions import ValidationError
@@ -132,7 +161,7 @@ class ViewTests(QuoteTestMixin, TestCase):
         Client.objects.filter(owner=self.user).delete()
         self.client.login(username="owner", password="pass12345")
         response = self.client.get(reverse("quotes:quote_create"))
-        self.assertRedirects(response, reverse("quotes:client_create"))
+        self.assertRedirects(response, reverse("quotes:client_list"))
 
     def test_cross_user_quote_detail_is_forbidden(self):
         quote = Quote.objects.create(owner=self.other, client=self.other_client, issue_date=date(2026, 1, 5), expiry_date=date(2026, 2, 4))
@@ -403,6 +432,68 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         self.assertRedirects(response, reverse("quotes:catalog_list"))
         self.assertFalse(QuoteLineItem.objects.filter(quote=other_quote, catalog_item=item).exists())
 
+    def test_discount_summary_template_filter(self):
+        from quotes.templatetags.quote_extras import discount_summary
+
+        quote = self.make_quote(discount_type=Quote.DISCOUNT_PERCENT, discount_value=Decimal("10.00"))
+        self.assertEqual(discount_summary(quote), "10.00%")
+        quote.discount_type = Quote.DISCOUNT_FLAT
+        quote.discount_value = Decimal("25.00")
+        self.assertEqual(discount_summary(quote), "$25.00 flat")
+
+    def test_quote_detail_renders_terms_tax_and_notes(self):
+        quote = self.make_quote(
+            notes="Net 30 billing.",
+            terms="Payment due on receipt.",
+            tax_rate=Decimal("8.25"),
+            discount_type=Quote.DISCOUNT_PERCENT,
+            discount_value=Decimal("5.00"),
+        )
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:quote_detail", args=[quote.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Net 30 billing.")
+        self.assertContains(response, "Payment due on receipt.")
+        self.assertContains(response, "8.25%")
+        self.assertContains(response, "5.00%")
+
+    def test_public_decline_shows_distinct_message(self):
+        quote = self.make_quote()
+        quote.ensure_public_token()
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        quote.transition_to(Quote.STATUS_VIEWED, ActivityEvent.EVENT_VIEWED)
+        response = self.client.post(
+            reverse("quotes:public_quote", args=[quote.public_token]),
+            {"action": "decline"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "declined this quote")
+
+    def test_public_quote_renders_line_item_headers(self):
+        quote = self.make_quote(notes="Visible note")
+        QuoteLineItem.objects.create(quote=quote, description="Work", quantity=1, unit_price=Decimal("50.00"))
+        quote.ensure_public_token()
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        response = self.client.get(reverse("quotes:public_quote", args=[quote.public_token]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Unit price")
+        self.assertContains(response, "Visible note")
+
+    def test_client_and_catalog_tables_have_headers(self):
+        from pathlib import Path
+
+        base = Path(__file__).resolve().parents[2] / "quotes" / "templates" / "quotes" / "partials"
+        self.assertIn("<thead", (base / "_client_table.html").read_text())
+        self.assertIn("<thead", (base / "_catalog_table.html").read_text())
+
+    def test_quote_list_has_loading_indicator(self):
+        from pathlib import Path
+
+        content = (Path(__file__).resolve().parents[2] / "quotes" / "templates" / "quotes" / "quote_list.html").read_text()
+        self.assertIn("quote-list-indicator", content)
+        self.assertIn("hx-indicator", content)
+
     def test_quote_has_status_template_filter(self):
         from quotes.templatetags.quote_extras import quote_has_status
 
@@ -421,7 +512,7 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         self.assertIn("hx-swap-oob", content)
         self.assertIn("<tr", content)
         self.assertNotIn("<tbody", content)
-        self.assertIn('hx-select="tr"', (Path(__file__).resolve().parents[1] / "quotes" / "templates" / "quotes" / "quote_list.html").read_text())
+        self.assertIn('hx-select="tr"', (Path(__file__).resolve().parents[2] / "quotes" / "templates" / "quotes" / "quote_list.html").read_text())
 
     def test_quote_revoke_public_link(self):
         quote = self.make_quote()
@@ -523,16 +614,186 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         event = quote.activity_events.get(event_type=ActivityEvent.EVENT_ACCEPTED)
         self.assertEqual(event.metadata.get("ip"), "203.0.113.42")
 
-    def test_send_failure_does_not_persist_public_token(self):
+    def test_send_failure_leaves_sent_when_transition_committed(self):
         from unittest import mock
+
         quote = self.make_quote()
         QuoteLineItem.objects.create(quote=quote, description="W", quantity=1, unit_price=Decimal("100.00"))
         self.client.login(username="owner", password="pass12345")
         with mock.patch("quotes.views.send_mail", side_effect=RuntimeError("SMTP down")):
             self.client.post(reverse("quotes:quote_send", args=[quote.pk]))
         quote.refresh_from_db()
+        self.assertEqual(quote.status, Quote.STATUS_SENT)
+        self.assertIsNotNone(quote.public_token)
+
+    def test_send_failure_shows_generic_message_not_smtp_details(self):
+        from unittest import mock
+
+        quote = self.make_quote()
+        QuoteLineItem.objects.create(quote=quote, description="W", quantity=1, unit_price=Decimal("100.00"))
+        self.client.login(username="owner", password="pass12345")
+        with mock.patch("quotes.views.send_mail", side_effect=RuntimeError("SMTP down")):
+            response = self.client.post(reverse("quotes:quote_send", args=[quote.pk]), follow=True)
+        self.assertContains(response, "email could not be delivered")
+        self.assertNotContains(response, "SMTP")
+
+    def test_quote_list_pagination_uses_htmx(self):
+        from pathlib import Path
+
+        pagination = (
+            Path(__file__).resolve().parents[2]
+            / "quotes"
+            / "templates"
+            / "quotes"
+            / "partials"
+            / "_pagination.html"
+        ).read_text()
+        self.assertIn("hx-get", pagination)
+        self.assertIn("#quote-feed", pagination)
+        self.assertIn("#quote-filters", pagination)
+
+    def test_quote_list_pagination_hx_returns_rows_and_oob(self):
+        for index in range(26):
+            self.make_quote(number=f"Q-2025-{index + 1:04d}")
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:quote_list"), {"page": "2"}, HTTP_HX_REQUEST="true")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("<tr", content)
+        self.assertIn("hx-swap-oob", content)
+        self.assertIn("quote-pagination", content)
+
+    def test_quote_send_blocked_when_archived(self):
+        quote = self.make_quote()
+        QuoteLineItem.objects.create(quote=quote, description="W", quantity=1, unit_price=Decimal("100.00"))
+        quote.archived_at = timezone.now()
+        quote.save(update_fields=["archived_at", "updated_at"])
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(reverse("quotes:quote_send", args=[quote.pk]), follow=True)
+        quote.refresh_from_db()
         self.assertEqual(quote.status, Quote.STATUS_DRAFT)
-        self.assertIsNone(quote.public_token)
+        self.assertContains(response, "archived")
+
+    def test_archived_public_quote_returns_404(self):
+        quote = self.make_quote()
+        token = quote.ensure_public_token()
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        quote.archived_at = timezone.now()
+        quote.save(update_fields=["archived_at", "updated_at"])
+        response = self.client.get(reverse("quotes:public_quote", args=[token]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_archived_public_pdf_returns_404(self):
+        quote = self.make_quote()
+        token = quote.ensure_public_token()
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        quote.archived_at = timezone.now()
+        quote.save(update_fields=["archived_at", "updated_at"])
+        response = self.client.get(reverse("quotes:public_quote_pdf", args=[token]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_filter_sidebar_includes_search_on_change(self):
+        from pathlib import Path
+
+        sidebar = (
+            Path(__file__).resolve().parents[2]
+            / "quotes"
+            / "templates"
+            / "quotes"
+            / "partials"
+            / "_filter_sidebar.html"
+        ).read_text()
+        self.assertIn('hx-include="#quote-search"', sidebar)
+        quote_list = (
+            Path(__file__).resolve().parents[2] / "quotes" / "templates" / "quotes" / "quote_list.html"
+        ).read_text()
+        self.assertIn('id="quote-search"', quote_list)
+
+    def test_accessibility_base_templates(self):
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:quote_list"))
+        self.assertContains(response, 'class="skip-link"')
+        self.assertContains(response, 'href="#main"')
+        self.assertContains(response, 'id="main"')
+        self.assertContains(response, 'aria-live="polite"')
+
+    def test_sidebar_favorite_count_id_is_unique(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2] / "quotes" / "templates"
+        sidebar = (root / "quotes" / "partials" / "_filter_sidebar.html").read_text()
+        oob = (root / "quotes" / "partials" / "_favorite_count.html").read_text()
+        self.assertIn('id="sidebar-favorite-count"', sidebar)
+        self.assertIn('id="sidebar-favorite-count"', oob)
+        for path in root.rglob("*.html"):
+            self.assertNotIn('id="favorite-count"', path.read_text())
+
+    def test_line_item_form_labels_use_for_attributes(self):
+        from pathlib import Path
+
+        form = (
+            Path(__file__).resolve().parents[2]
+            / "quotes"
+            / "templates"
+            / "quotes"
+            / "partials"
+            / "_line_item_form.html"
+        ).read_text()
+        self.assertIn("id_for_label", form)
+        row = (
+            Path(__file__).resolve().parents[2]
+            / "quotes"
+            / "templates"
+            / "quotes"
+            / "partials"
+            / "_line_item_row.html"
+        ).read_text()
+        self.assertIn('for="line-item-{{ item.pk }}-description"', row)
+
+    def test_sort_aria_reflects_active_column(self):
+        from django.template import Context, Template
+        from django.test import RequestFactory
+
+        request = RequestFactory().get("/", {"sort": "total", "dir": "desc"})
+        template = Template("{% load quote_extras %}{% sort_aria 'total' %}")
+        self.assertEqual(template.render(Context({"request": request})), "descending")
+        self.assertEqual(
+            template.render(Context({"request": RequestFactory().get("/")})),
+            "none",
+        )
+
+    def test_search_and_status_filter_combine(self):
+        quote = self.make_quote()
+        other_client = Client.objects.create(owner=self.user, name="Beta Corp")
+        Quote.objects.create(
+            owner=self.user,
+            client=other_client,
+            issue_date=timezone.localdate(),
+            expiry_date=timezone.localdate() + timedelta(days=30),
+        )
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(
+            reverse("quotes:quote_list"),
+            {"q": "Ada", "status": "draft"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, quote.number)
+        self.assertNotContains(response, "Beta Corp")
+
+    def test_line_item_add_hx_422_retargets_add_form(self):
+        quote = self.make_quote()
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:line_item_add", args=[quote.pk]),
+            {"description": "Bad", "quantity": "0", "unit_price": "10.00"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.headers.get("HX-Retarget"), "#line-item-add")
+        content = response.content.decode()
+        self.assertIn("line-item-add", content)
+        self.assertIn("quantity", content)
 
     def test_line_item_reorder_updates_positions(self):
         quote = self.make_quote()
@@ -730,10 +991,23 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         response = self.client.post(reverse("quotes:line_item_reorder", args=[quote.pk]), {"item": [str(a.pk)]})
         self.assertEqual(response.status_code, 400)
 
+    def test_line_item_reorder_rejects_duplicate_ids(self):
+        quote = self.make_quote()
+        a = QuoteLineItem.objects.create(quote=quote, description="A", quantity=1, unit_price=Decimal("10.00"), position=1)
+        b = QuoteLineItem.objects.create(quote=quote, description="B", quantity=1, unit_price=Decimal("20.00"), position=2)
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:line_item_reorder", args=[quote.pk]),
+            {"item": [str(a.pk), str(a.pk), str(b.pk)]},
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_flat_discount_value_capped_when_lines_removed(self):
-        quote = self.make_quote(discount_type=Quote.DISCOUNT_FLAT, discount_value=Decimal("400.00"))
+        quote = self.make_quote()
         item = QuoteLineItem.objects.create(quote=quote, description="Work", quantity=1, unit_price=Decimal("500.00"))
-        quote.refresh_from_db()
+        quote.discount_type = Quote.DISCOUNT_FLAT
+        quote.discount_value = Decimal("400.00")
+        quote.save()
         item.delete()
         quote.refresh_from_db()
         self.assertEqual(quote.discount_value, Decimal("0.00"))
@@ -752,6 +1026,61 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         self.assertRedirects(response, reverse("quotes:dashboard"))
         self.assertTrue(User.objects.filter(username="newuser").exists())
         self.assertEqual(int(self.client.session["_auth_user_id"]), User.objects.get(username="newuser").pk)
+
+    def test_client_list_inline_create_and_edit(self):
+        self.client.login(username="owner", password="pass12345")
+        create = self.client.post(
+            reverse("quotes:client_create"),
+            {
+                "name": "Inline Client",
+                "company": "HX Co",
+                "email": "inline@example.com",
+                "phone": "555-0100",
+                "billing_address": "",
+                "notes": "",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(create.status_code, 200)
+        client = Client.objects.get(email="inline@example.com")
+        self.assertContains(create, f'id="client-{client.pk}"', status_code=200)
+
+        edit_get = self.client.get(
+            reverse("quotes:client_update", args=[client.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(edit_get.status_code, 200)
+        self.assertContains(edit_get, "Save")
+
+        save = self.client.post(
+            reverse("quotes:client_update", args=[client.pk]),
+            {
+                "name": "Inline Client Updated",
+                "company": "HX Co",
+                "email": "inline@example.com",
+                "phone": "555-0100",
+                "billing_address": "",
+                "notes": "",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(save.status_code, 200)
+        client.refresh_from_db()
+        self.assertEqual(client.name, "Inline Client Updated")
+
+        cancel = self.client.get(reverse("quotes:client_row", args=[client.pk]), HTTP_HX_REQUEST="true")
+        self.assertContains(cancel, "Inline Client Updated")
+
+    def test_catalog_list_inline_create(self):
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:catalog_create"),
+            {"name": "Inline SKU", "description": "Desc", "default_unit_price": "99.00", "unit": "each"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        item = CatalogItem.objects.get(name="Inline SKU")
+        self.assertContains(response, f'id="catalog-{item.pk}"', status_code=200)
 
     def test_client_create_hx_returns_row_partial(self):
         self.client.login(username="owner", password="pass12345")
@@ -831,10 +1160,17 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
     def test_prod_requires_database_url(self):
         from pathlib import Path
 
-        prod = (Path(__file__).resolve().parents[1] / "config" / "settings" / "prod.py").read_text()
+        prod = (Path(__file__).resolve().parents[2] / "config" / "settings" / "prod.py").read_text()
         self.assertIn('os.environ["DATABASE_URL"]', prod)
         self.assertIn("ImproperlyConfigured", prod)
         self.assertIn("console.EmailBackend", prod)
+
+    def test_adr_0006_documents_public_token_model(self):
+        from pathlib import Path
+
+        adr = (Path(__file__).resolve().parents[2] / "docs" / "adr-0006-public-bearer-token.md").read_text()
+        self.assertIn("public_token", adr)
+        self.assertIn("archived", adr.lower())
 
     def test_zero_default_validity_days_still_creates_quote(self):
         profile = CompanyProfile.objects.get(owner=self.user)
@@ -861,11 +1197,11 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
 
     def test_requirements_declares_gunicorn(self):
         from pathlib import Path
-        requirements = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()
+        requirements = (Path(__file__).resolve().parents[2] / "requirements.txt").read_text()
         self.assertIn("gunicorn", requirements.lower())
 
     def test_railway_uses_production_settings(self):
         from pathlib import Path
-        railway = (Path(__file__).resolve().parents[1] / "railway.toml").read_text()
+        railway = (Path(__file__).resolve().parents[2] / "railway.toml").read_text()
         self.assertIn("config.settings.prod", railway)
         self.assertIn("gunicorn", railway)

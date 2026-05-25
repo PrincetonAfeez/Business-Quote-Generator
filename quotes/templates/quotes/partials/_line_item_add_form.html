@@ -1,0 +1,9 @@
+<div id="line-item-add">
+  <form class="mt-4 grid gap-3 md:grid-cols-[1fr_120px_140px_auto]" method="post"
+        hx-post="{% url 'quotes:line_item_add' quote.pk %}" hx-target="#line-items" hx-swap="beforeend"
+        hx-on::after-request="if (event.detail.successful) this.reset();">
+    {% csrf_token %}
+    {% include "quotes/partials/_line_item_form.html" with form=line_form %}
+    <button class="button-primary self-end" type="submit"><i data-lucide="plus" class="h-4 w-4"></i> Add</button>
+  </form>
+</div>

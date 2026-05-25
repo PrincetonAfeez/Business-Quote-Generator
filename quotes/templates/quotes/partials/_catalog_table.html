@@ -1,11 +1,19 @@
 <div class="overflow-x-auto">
   <table class="min-w-full divide-y divide-slate-200 text-sm">
-    <tbody class="divide-y divide-slate-100">
+    <thead class="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+      <tr>
+        <th class="px-4 py-3">Item</th>
+        <th class="px-4 py-3">Default price</th>
+        <th class="px-4 py-3 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="catalog-rows" class="divide-y divide-slate-100">
       {% for item in items %}
         {% include "quotes/partials/_catalog_row.html" %}
       {% empty %}
-        <tr><td class="px-4 py-8 text-center text-slate-500">No catalog items yet.</td></tr>
+        <tr id="catalog-empty"><td colspan="3" class="px-4 py-8 text-center text-slate-500">No catalog items yet. Add one below.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% include "quotes/partials/_catalog_create_form.html" %}

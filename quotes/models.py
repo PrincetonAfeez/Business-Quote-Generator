@@ -83,6 +83,16 @@ class Client(models.Model):
     def __str__(self):
         return self.company or self.name
 
+    def clean(self):
+        super().clean()
+        if self.email:
+            self.email = self.email.strip().lower()
+
+    def save(self, *args, **kwargs):
+        if self.email:
+            self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -241,19 +251,30 @@ class Quote(models.Model):
         return reverse("quotes:public_quote", args=[self.public_token])
 
     def clean(self):
-        if self.discount_value < 0:
-            raise ValidationError({"discount_value": "Discount cannot be negative."})
-        if self.discount_type == self.DISCOUNT_PERCENT and self.discount_value > 100:
-            raise ValidationError({"discount_value": "Percent discount cannot exceed 100."})
         if self.issue_date and self.expiry_date and self.expiry_date <= self.issue_date:
             raise ValidationError({"expiry_date": "Expiry date must be after the issue date."})
         if self.client_id and self.owner_id and not Client.objects.filter(pk=self.client_id, owner_id=self.owner_id).exists():
             raise ValidationError({"client": "Client must belong to the quote owner."})
-        if self.discount_type == self.DISCOUNT_FLAT and self.pk:
-            aggregated = self.line_items.aggregate(total=models.Sum("line_total"))["total"]
-            current_subtotal = aggregated or Decimal("0.00")
-            if self.discount_value > current_subtotal:
-                raise ValidationError({"discount_value": "Flat discount cannot exceed the subtotal."})
+        self._validate_discount_fields(money(self._current_subtotal()))
+
+    def _current_subtotal(self):
+        if not self.pk:
+            return Decimal("0.00")
+        aggregated = self.line_items.aggregate(total=models.Sum("line_total"))["total"]
+        return aggregated or Decimal("0.00")
+
+    def _validate_discount_fields(self, subtotal):
+        errors = {}
+        if self.discount_value < 0:
+            errors["discount_value"] = "Discount cannot be negative."
+        if self.discount_type == self.DISCOUNT_PERCENT and self.discount_value > 100:
+            errors["discount_value"] = "Percent discount cannot exceed 100."
+        if self.discount_type == self.DISCOUNT_NONE and self.discount_value > 0:
+            errors["discount_value"] = "Discount value must be zero when discount type is none."
+        if self.discount_type == self.DISCOUNT_FLAT and self.discount_value > subtotal:
+            errors["discount_value"] = "Flat discount cannot exceed the subtotal."
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         # full_clean() runs on normal saves. Skipped when update_fields is set (including []) so
@@ -297,12 +318,12 @@ class Quote(models.Model):
             aggregated = self.line_items.aggregate(total=models.Sum("line_total"))["total"]
             subtotal = aggregated or Decimal("0.00")
         subtotal = money(subtotal)
-
         if self.discount_value < 0:
-            raise ValueError("Discount cannot be negative.")
+            raise ValidationError({"discount_value": "Discount cannot be negative."})
+        if self.discount_type == self.DISCOUNT_PERCENT and self.discount_value > 100:
+            raise ValidationError({"discount_value": "Percent discount cannot exceed 100."})
+
         if self.discount_type == self.DISCOUNT_PERCENT:
-            if self.discount_value > 100:
-                raise ValueError("Percent discount cannot exceed 100.")
             discount = subtotal * Decimal(self.discount_value) / Decimal("100")
         elif self.discount_type == self.DISCOUNT_FLAT:
             discount = Decimal(self.discount_value)
@@ -439,10 +460,13 @@ class QuoteLineItem(models.Model):
 
     def clean(self):
         super().clean()
-        if self.catalog_item_id and self.quote_id:
-            quote_owner_id = Quote.objects.filter(pk=self.quote_id).values_list("owner_id", flat=True).first()
-            if quote_owner_id and self.catalog_item.owner_id != quote_owner_id:
-                raise ValidationError({"catalog_item": "Catalog item must belong to the quote owner."})
+        if not self.quote_id:
+            return
+        quote_owner_id = Quote.objects.filter(pk=self.quote_id).values_list("owner_id", flat=True).first()
+        if quote_owner_id is None:
+            raise ValidationError({"quote": "Quote does not exist."})
+        if self.catalog_item_id and self.catalog_item.owner_id != quote_owner_id:
+            raise ValidationError({"catalog_item": "Catalog item must belong to the quote owner."})
 
     def save(self, *args, **kwargs):
         self.full_clean()

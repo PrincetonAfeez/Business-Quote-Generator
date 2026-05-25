@@ -1,5 +1,0 @@
-<form method="post" class="space-y-4" hx-post="{{ request.path }}" hx-target="closest tr" hx-swap="outerHTML">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button class="button-primary" type="submit"><i data-lucide="save" class="h-4 w-4"></i> Save client</button>
-</form>

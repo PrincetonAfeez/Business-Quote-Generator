@@ -1,13 +1,27 @@
 {% load quote_extras %}
 {% if page_obj.paginator.num_pages > 1 %}
-  <nav class="flex items-center justify-between text-sm">
+  <nav class="flex items-center justify-between text-sm" aria-label="Quote list pagination">
     <span class="text-slate-500">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
     <div class="flex gap-2">
       {% if page_obj.has_previous %}
-        <a class="button-secondary" href="?{% qs_replace page=page_obj.previous_page_number %}">Previous</a>
+        <a class="button-secondary"
+           href="?{% qs_replace page=page_obj.previous_page_number %}"
+           hx-get="{% url 'quotes:quote_list' %}?{% qs_replace page=page_obj.previous_page_number %}"
+           hx-target="#quote-feed"
+           hx-select="tr"
+           hx-include="#quote-filters, #quote-search"
+           hx-push-url="true"
+           hx-indicator="#quote-list-indicator">Previous</a>
       {% endif %}
       {% if page_obj.has_next %}
-        <a class="button-secondary" href="?{% qs_replace page=page_obj.next_page_number %}">Next</a>
+        <a class="button-secondary"
+           href="?{% qs_replace page=page_obj.next_page_number %}"
+           hx-get="{% url 'quotes:quote_list' %}?{% qs_replace page=page_obj.next_page_number %}"
+           hx-target="#quote-feed"
+           hx-select="tr"
+           hx-include="#quote-filters, #quote-search"
+           hx-push-url="true"
+           hx-indicator="#quote-list-indicator">Next</a>
       {% endif %}
     </div>
   </nav>

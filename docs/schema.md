@@ -29,13 +29,13 @@ A customer/contact a quote can be issued to.
 | owner | FK(User) | CASCADE |
 | name | CharField(200) | required |
 | company | CharField(200) | optional |
-| email | EmailField | optional; **unique per owner when non-empty** |
+| email | EmailField | optional; **unique per owner when non-empty**; stored lowercased |
 | phone | CharField(50) | optional |
 | billing_address | TextField | optional |
 | notes | TextField | optional |
 | created_at / updated_at | DateTime | auto |
 
-Constraint: `UniqueConstraint(owner, email, condition=~Q(email=""))`.
+Constraint: `UniqueConstraint(owner, email, condition=~Q(email=""))`. `Client.save()` normalizes email to lowercase before insert/update, so the constraint applies to the stored value. The web form also checks duplicates case-insensitively; raw SQL or bulk updates that bypass `save()` are out of scope.
 
 ### CatalogItem (N ↔ 1 User)
 A reusable line item template.
@@ -107,6 +107,8 @@ Append-only audit log.
 | metadata | JSONField | per-event payload (IP, UA, public_url, etc.) |
 
 **Audit metadata:** `metadata.ip` is taken from the first segment of `X-Forwarded-For` when present, otherwise `REMOTE_ADDR`. This is basic audit metadata for activity logging — not authenticated identity. Behind Railway's proxy the forwarded IP is usually trustworthy; in local or non-proxy setups a client can spoof the header.
+
+**Archived quotes:** Setting `archived_at` removes the quote from the owner list and blocks send; public URLs return 404 even if the token is still stored.
 
 **Bot detection:** Public `Sent → Viewed` transitions skip requests whose user-agent contains heuristic markers (`bot`, `spider`, `crawler`, etc.). This is an academic shortcut, not proof of automation — a rare legitimate UA substring (e.g. a browser extension) could theoretically match.
 

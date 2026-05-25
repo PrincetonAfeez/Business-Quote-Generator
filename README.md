@@ -6,7 +6,7 @@ A Django 5 quote workflow app for small service businesses. It supports client a
 
 - **Python 3.12.7** — pinned in `runtime.txt` for Railway deployment
 - **Python 3.12 and 3.14** — tested locally and in GitHub Actions (`.github/workflows/tests.yml`)
-- Django 5.1
+- Django 5.1.15 (pinned in `requirements.txt`)
 - Django templates, HTMX, Tailwind CSS
 - SQLite for development
 - PostgreSQL on Railway
@@ -27,7 +27,7 @@ A Django 5 quote workflow app for small service businesses. It supports client a
 - **HTMX showcase**: `innerHTML`, `outerHTML`, `beforeend`, `none`, `hx-swap-oob`, `hx-include`, and `HX-Trigger` toasts — see [docs/htmx-patterns.md](docs/htmx-patterns.md).
 - **Content negotiation**: HTML, partial HTML, and JSON on the same URLs.
 - **Validation**: model `clean()` enforces discount, expiry, and flat-discount-vs-subtotal rules; field validators reject negative tax rates and out-of-range values.
-- **Test suite**: 83 tests covering ownership, money math, transitions, HTMX responses, content negotiation, PDF smoke, failure paths, and deployment config.
+- **Test suite**: 260 pytest tests covering models, forms, views, helpers, templatetags, PDF, admin, HTMX, public flow, and deployment config.
 
 ## Local setup
 
@@ -50,12 +50,14 @@ Set these in `.env` locally and in Railway's dashboard for production:
 - `SECRET_KEY` — required in production (no default; `prod.py` will fail fast).
 - `DEBUG` — `True` locally, leave unset (defaults to `False`) in production.
 - `ALLOWED_HOSTS` — comma-separated.
-- `DATABASE_URL` — Postgres URL for prod; falls back to SQLite if unset.
-- `EMAIL_BACKEND` — set to an SMTP backend in production; defaults to console (a `RuntimeWarning` is emitted in prod if left at console).
+- `DATABASE_URL` — **required in production** (`prod.py` reads it with no fallback). Local dev uses SQLite from `config.settings.dev` when unset.
+- `EMAIL_BACKEND` — **must be a real SMTP (or other deliverable) backend in production**; `prod.py` raises `ImproperlyConfigured` if the console backend is configured. Local dev defaults to the console backend.
 - `DEFAULT_FROM_EMAIL` — sender used by `quote_send`.
 - `CSRF_TRUSTED_ORIGINS` — comma-separated, e.g. `https://your-app.up.railway.app`.
 - `SECURE_SSL_REDIRECT` — defaults to `True` in prod; set `False` if behind a proxy that does not terminate TLS.
 - `SECURE_HSTS_SECONDS` — defaults to 3600.
+
+Missing `DATABASE_URL` or a deliverable `EMAIL_BACKEND` prevents production startup.
 
 ## Public quote flow
 
@@ -64,9 +66,11 @@ A draft quote gets a public token the first time it is **successfully** sent. Th
 ## Known academic limitations
 
 - The public-view auto-transition relies on a user-agent heuristic; obscure preview/scanner bots may still trigger `Viewed`.
-- Accept/decline on the public link is available to anyone holding the URL — there is no separate client authentication step.
+- Accept/decline on the public link is available to anyone holding the URL — there is no separate client authentication step (see ADR-0006).
 - Audit metadata records the first `X-Forwarded-For` hop without validating a trusted proxy chain.
-- Django admin can inspect records but quote `status` is read-only there so the state machine cannot be bypassed casually.
+- Django admin can inspect records; non-draft quotes and their line items are read-only there so the state machine and locked editing rules match the web UI.
+- Client email is normalized to lowercase on save; uniqueness is enforced on the stored value (see `docs/schema.md`).
+- Zero-total quotes (complimentary lines or 100% discounts) may be sent — this is intentional for free estimates and fully discounted work.
 - Open signup with no email verification; duplicate usernames are blocked but email is optional.
 - Tailwind is loaded via the Play CDN; for a production deployment we would replace it with a built bundle.
 - Media uploads are served from local disk; on Railway with no persistent volume, logos do not survive restarts. A cloud storage backend would be required for a real deployment.
@@ -76,9 +80,11 @@ A draft quote gets a public token the first time it is **successfully** sent. Th
 ## Commands
 
 ```powershell
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+pytest --cov=quotes --cov-report=term-missing
 python manage.py makemigrations
 python manage.py migrate
-python manage.py test
 python manage.py collectstatic --noinput
 ```
 
@@ -90,11 +96,13 @@ Railway uses `config.settings.prod` and reads the start command from `railway.to
 
 - [docs/schema.md](docs/schema.md) — data model overview and ER summary.
 - [docs/htmx-patterns.md](docs/htmx-patterns.md) — HTMX patterns showcase.
+- [docs/roadmap.md](docs/roadmap.md) — checklist toward 9.5+ on every evaluation dimension.
 - ADR-0001 — Decimal money.
 - ADR-0002 — Server-side total recalculation.
 - ADR-0003 — Same-URL content negotiation.
 - ADR-0004 — Hand-rolled ReportLab PDF.
 - ADR-0005 — USD-only currency (internationalization out of scope).
+- ADR-0006 — Public bearer-token access for client quote links.
 
 ## License
 

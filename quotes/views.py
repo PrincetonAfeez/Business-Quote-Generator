@@ -34,6 +34,12 @@ from .pdf import render_quote_pdf
 
 logger = logging.getLogger(__name__)
 
+SEND_EMAIL_FAILURE = "Could not send {number}. Check your email configuration and try again."
+SEND_MARKED_SENT_FAILURE = (
+    "{number} is marked sent but the email could not be delivered. "
+    "Check your email settings or share the public link from the quote page."
+)
+
 
 def is_hx(request):
     return request.headers.get("HX-Request") == "true"
@@ -71,6 +77,15 @@ def get_quote(user, pk):
     return quote
 
 
+def get_public_quote(token):
+    return get_object_or_404(
+        Quote.objects.select_related("client", "owner")
+        .prefetch_related("line_items")
+        .filter(archived_at__isnull=True),
+        public_token=token,
+    )
+
+
 EDITABLE_QUOTE_STATUSES = {Quote.STATUS_DRAFT}
 RESENDABLE_QUOTE_STATUSES = {Quote.STATUS_SENT, Quote.STATUS_VIEWED}
 
@@ -98,6 +113,15 @@ def build_quote_detail_context(request, quote):
         "quote_is_editable": editable,
         "can_send_quote": can_send_quote(quote),
         "can_resend_quote": quote.status in RESENDABLE_QUOTE_STATUSES and not quote.public_token,
+    }
+
+
+def quote_header_context(request, quote, form, editable):
+    return {
+        "quote": quote,
+        "profile": profile_for(request.user),
+        "form": form,
+        "quote_is_editable": editable,
     }
 
 
@@ -293,7 +317,7 @@ def quote_list(request):
 def quote_create(request):
     if not Client.objects.for_user(request.user).exists():
         messages.info(request, "Add a client before creating a quote.")
-        return redirect("quotes:client_create")
+        return redirect("quotes:client_list")
     if request.method == "POST":
         form = QuoteCreateForm(request.POST, owner=request.user)
         if form.is_valid():
@@ -326,7 +350,7 @@ def quote_update(request, pk):
             response = render(
                 request,
                 "quotes/partials/_quote_header.html",
-                {"quote": quote, "form": QuoteForm(instance=quote, owner=request.user), "quote_is_editable": False},
+                quote_header_context(request, quote, QuoteForm(instance=quote, owner=request.user), False),
                 status=409,
             )
             return add_toast(response, message, "error")
@@ -339,7 +363,7 @@ def quote_update(request, pk):
             response = render(
                 request,
                 "quotes/partials/_quote_header.html",
-                {"quote": quote, "form": QuoteForm(instance=quote, owner=request.user), "quote_is_editable": True},
+                quote_header_context(request, quote, QuoteForm(instance=quote, owner=request.user), True),
             )
             return add_toast(response, "Quote header saved.")
         messages.success(request, "Quote header saved.")
@@ -348,7 +372,7 @@ def quote_update(request, pk):
         response = render(
             request,
             "quotes/partials/_quote_header.html",
-            {"quote": quote, "form": form, "quote_is_editable": True},
+            quote_header_context(request, quote, form, True),
             status=422,
         )
         return add_toast(response, "Please fix the quote header.", "error")
@@ -397,6 +421,9 @@ def quote_duplicate(request, pk):
 @require_POST
 def quote_send(request, pk):
     quote = get_quote(request.user, pk)
+    if quote.archived_at:
+        messages.error(request, f"{quote.number} is archived and cannot be sent.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
     is_initial_send = quote.status == Quote.STATUS_DRAFT
     is_resend = quote.status in RESENDABLE_QUOTE_STATUSES and not quote.public_token
     if not is_initial_send and not is_resend:
@@ -412,9 +439,12 @@ def quote_send(request, pk):
         messages.error(request, "Quote email is not configured for production delivery.")
         return redirect("quotes:quote_detail", pk=quote.pk)
     token_was_empty = not quote.public_token
+    status_before_send = quote.status
     try:
         quote.ensure_public_token()
         public_url = request.build_absolute_uri(quote.public_url)
+        if is_initial_send:
+            quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT, {"public_url": public_url})
         send_mail(
             subject=f"Quote {quote.number} from {profile_for(request.user) or request.user}",
             message=f"Hello {quote.client.name},\n\nYour quote is ready:\n{public_url}\n\nThank you.",
@@ -423,15 +453,15 @@ def quote_send(request, pk):
             fail_silently=False,
         )
         if is_initial_send:
-            quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT, {"public_url": public_url})
             messages.success(request, f"{quote.number} sent.")
         else:
             quote.record_event(ActivityEvent.EVENT_SENT, {"public_url": public_url, "resend": True})
             messages.success(request, f"{quote.number} resent with a new public link.")
     except InvalidTransition as exc:
         messages.error(request, str(exc))
-    except Exception as exc:
-        if token_was_empty:
+    except Exception:
+        logger.exception("Failed to send quote %s", quote.pk)
+        if token_was_empty and status_before_send == Quote.STATUS_DRAFT and quote.status == Quote.STATUS_DRAFT:
             try:
                 quote.public_token = None
                 quote.save(update_fields=["public_token", "updated_at"])
@@ -441,7 +471,10 @@ def quote_send(request, pk):
                     quote.pk,
                     rollback_exc,
                 )
-        messages.error(request, f"Could not send {quote.number}: {exc}")
+        elif is_initial_send and quote.status == Quote.STATUS_SENT:
+            messages.error(request, SEND_MARKED_SENT_FAILURE.format(number=quote.number))
+        else:
+            messages.error(request, SEND_EMAIL_FAILURE.format(number=quote.number))
     return redirect("quotes:quote_detail", pk=quote.pk)
 
 
@@ -499,13 +532,21 @@ def line_item_add(request, pk):
             response = render(
                 request,
                 "quotes/partials/_line_item_response.html",
-                {"item": item, "quote": quote, "favorite_count": favorite_count(request.user), "quote_is_editable": True},
+                {"item": item, "quote": quote, "quote_is_editable": True},
             )
             return add_toast(response, "Line item added.")
         messages.success(request, "Line item added.")
         return redirect("quotes:quote_detail", pk=quote.pk)
     if is_hx(request):
-        return render(request, "quotes/partials/_line_item_form.html", {"form": form, "quote": quote}, status=422)
+        response = render(
+            request,
+            "quotes/partials/_line_item_add_form.html",
+            {"form": form, "quote": quote, "line_form": form},
+            status=422,
+        )
+        response["HX-Retarget"] = "#line-item-add"
+        response["HX-Reswap"] = "outerHTML"
+        return add_toast(response, "Please fix the line item.", "error")
     messages.error(request, "Please fix the line item.")
     return redirect("quotes:quote_detail", pk=quote.pk)
 
@@ -529,7 +570,7 @@ def line_item_update(request, pk, item_pk):
             response = render(
                 request,
                 "quotes/partials/_line_item_response.html",
-                {"item": item, "quote": quote, "favorite_count": favorite_count(request.user), "quote_is_editable": True},
+                {"item": item, "quote": quote, "quote_is_editable": True},
             )
             return add_toast(response, "Line item updated.")
         messages.success(request, "Line item updated.")
@@ -562,7 +603,7 @@ def line_item_delete(request, pk, item_pk):
         response = render(
             request,
             "quotes/partials/_line_item_delete_response.html",
-            {"quote": quote, "favorite_count": favorite_count(request.user), "quote_is_editable": True},
+            {"quote": quote, "quote_is_editable": True},
         )
         return add_toast(response, "Line item deleted.")
     messages.success(request, "Line item deleted.")
@@ -589,13 +630,21 @@ def line_item_reorder(request, pk):
         except (TypeError, ValueError):
             return HttpResponseBadRequest("Invalid line item id.")
     expected_ids = set(quote.line_items.values_list("pk", flat=True))
-    if set(parsed_ids) != expected_ids:
+    if len(parsed_ids) != len(expected_ids) or set(parsed_ids) != expected_ids:
         return HttpResponseBadRequest("Reorder must include every line item exactly once.")
     with transaction.atomic():
         for index, item_id in enumerate(parsed_ids, start=1):
             QuoteLineItem.objects.filter(pk=item_id, quote=quote).update(position=index)
         quote.record_event(ActivityEvent.EVENT_EDITED, {"action": "reordered"})
     return add_toast(HttpResponse(""), "Line items reordered.", "info")
+
+
+def draft_quotes_for(user):
+    return Quote.objects.for_user(user).filter(status=Quote.STATUS_DRAFT, archived_at__isnull=True)
+
+
+def catalog_row_context(request, item):
+    return {"item": item, "draft_quotes": draft_quotes_for(request.user)}
 
 
 @login_required
@@ -611,30 +660,67 @@ def client_list(request):
 
 
 @login_required
+def client_row(request, pk):
+    client = get_owned(Client, request.user, pk)
+    return render(request, "quotes/partials/_client_row.html", {"client": client})
+
+
+@login_required
 def client_create(request):
+    if request.method == "GET" and not is_hx(request):
+        return redirect("quotes:client_list")
     form = ClientForm(request.POST or None, owner=request.user)
     if request.method == "POST" and form.is_valid():
         client = form.save()
         if is_hx(request):
-            return add_toast(render(request, "quotes/partials/_client_row.html", {"client": client}), "Client created.")
+            response = add_toast(
+                render(request, "quotes/partials/_client_row.html", {"client": client}),
+                "Client created.",
+            )
+            if Client.objects.for_user(request.user).count() == 1:
+                response.content += b'<tr id="client-empty" hx-swap-oob="delete"></tr>'
+            return response
         messages.success(request, "Client created.")
         return redirect("quotes:client_list")
-    template = "quotes/partials/_client_form.html" if is_hx(request) else "quotes/client_form.html"
-    return render(request, template, {"form": form})
+    if is_hx(request):
+        response = render(
+            request,
+            "quotes/partials/_client_create_form.html",
+            {"form": form},
+            status=422 if request.method == "POST" else 200,
+        )
+        if request.method == "POST":
+            response["HX-Retarget"] = "#client-create"
+            response["HX-Reswap"] = "outerHTML"
+            return add_toast(response, "Please fix the client form.", "error")
+        return response
+    return render(request, "quotes/client_form.html", {"form": form})
 
 
 @login_required
 def client_update(request, pk):
     client = get_owned(Client, request.user, pk)
-    form = ClientForm(request.POST or None, instance=client, owner=request.user)
-    if request.method == "POST" and form.is_valid():
+    if request.method == "GET":
+        if is_hx(request):
+            form = ClientForm(instance=client, owner=request.user)
+            return render(request, "quotes/partials/_client_edit_row.html", {"form": form, "client": client})
+        return redirect("quotes:client_list")
+    form = ClientForm(request.POST, instance=client, owner=request.user)
+    if form.is_valid():
         client = form.save()
         if is_hx(request):
             return add_toast(render(request, "quotes/partials/_client_row.html", {"client": client}), "Client saved.")
         messages.success(request, "Client saved.")
         return redirect("quotes:client_list")
-    template = "quotes/partials/_client_form.html" if is_hx(request) else "quotes/client_form.html"
-    return render(request, template, {"form": form, "client": client})
+    if is_hx(request):
+        response = render(
+            request,
+            "quotes/partials/_client_edit_row.html",
+            {"form": form, "client": client},
+            status=422,
+        )
+        return add_toast(response, "Please fix the client form.", "error")
+    return render(request, "quotes/client_form.html", {"form": form, "client": client})
 
 
 @login_required
@@ -661,38 +747,81 @@ def catalog_list(request):
     search = request.GET.get("q", "").strip()
     if search:
         items = items.filter(Q(name__icontains=search) | Q(description__icontains=search))
-    quotes = Quote.objects.for_user(request.user).filter(status=Quote.STATUS_DRAFT, archived_at__isnull=True)
-    context = {"items": items, "form": CatalogItemForm(owner=request.user), "draft_quotes": quotes}
+    context = {
+        "items": items,
+        "form": CatalogItemForm(owner=request.user),
+        "draft_quotes": draft_quotes_for(request.user),
+    }
     if is_hx(request):
         return render(request, "quotes/partials/_catalog_table.html", context)
     return render(request, "quotes/catalog_list.html", context)
 
 
 @login_required
+def catalog_row(request, pk):
+    item = get_owned(CatalogItem, request.user, pk)
+    return render(request, "quotes/partials/_catalog_row.html", catalog_row_context(request, item))
+
+
+@login_required
 def catalog_create(request):
+    if request.method == "GET" and not is_hx(request):
+        return redirect("quotes:catalog_list")
     form = CatalogItemForm(request.POST or None, owner=request.user)
     if request.method == "POST" and form.is_valid():
         item = form.save()
         if is_hx(request):
-            return add_toast(render(request, "quotes/partials/_catalog_row.html", {"item": item}), "Catalog item created.")
+            response = add_toast(
+                render(request, "quotes/partials/_catalog_row.html", catalog_row_context(request, item)),
+                "Catalog item created.",
+            )
+            if CatalogItem.objects.for_user(request.user).count() == 1:
+                response.content += b'<tr id="catalog-empty" hx-swap-oob="delete"></tr>'
+            return response
         messages.success(request, "Catalog item created.")
         return redirect("quotes:catalog_list")
-    template = "quotes/partials/_catalog_form.html" if is_hx(request) else "quotes/catalog_form.html"
-    return render(request, template, {"form": form})
+    if is_hx(request):
+        response = render(
+            request,
+            "quotes/partials/_catalog_create_form.html",
+            {"form": form},
+            status=422 if request.method == "POST" else 200,
+        )
+        if request.method == "POST":
+            response["HX-Retarget"] = "#catalog-create"
+            response["HX-Reswap"] = "outerHTML"
+            return add_toast(response, "Please fix the catalog form.", "error")
+        return response
+    return render(request, "quotes/catalog_form.html", {"form": form})
 
 
 @login_required
 def catalog_update(request, pk):
     item = get_owned(CatalogItem, request.user, pk)
-    form = CatalogItemForm(request.POST or None, instance=item, owner=request.user)
-    if request.method == "POST" and form.is_valid():
+    if request.method == "GET":
+        if is_hx(request):
+            form = CatalogItemForm(instance=item, owner=request.user)
+            return render(request, "quotes/partials/_catalog_edit_row.html", {"form": form, "item": item})
+        return redirect("quotes:catalog_list")
+    form = CatalogItemForm(request.POST, instance=item, owner=request.user)
+    if form.is_valid():
         item = form.save()
         if is_hx(request):
-            return add_toast(render(request, "quotes/partials/_catalog_row.html", {"item": item}), "Catalog item saved.")
+            return add_toast(
+                render(request, "quotes/partials/_catalog_row.html", catalog_row_context(request, item)),
+                "Catalog item saved.",
+            )
         messages.success(request, "Catalog item saved.")
         return redirect("quotes:catalog_list")
-    template = "quotes/partials/_catalog_form.html" if is_hx(request) else "quotes/catalog_form.html"
-    return render(request, template, {"form": form, "item": item})
+    if is_hx(request):
+        response = render(
+            request,
+            "quotes/partials/_catalog_edit_row.html",
+            {"form": form, "item": item},
+            status=422,
+        )
+        return add_toast(response, "Please fix the catalog form.", "error")
+    return render(request, "quotes/catalog_form.html", {"form": form, "item": item})
 
 
 @login_required
@@ -736,7 +865,7 @@ def catalog_add_to_quote(request, pk):
 
 
 def public_quote(request, token):
-    quote = get_object_or_404(Quote.objects.select_related("client", "owner").prefetch_related("line_items"), public_token=token)
+    quote = get_public_quote(token)
     quote.check_expiry()
     quote.refresh_from_db()
     public_audit = {"ip": client_ip(request), "user_agent": request.META.get("HTTP_USER_AGENT", "")}
@@ -770,7 +899,7 @@ def public_quote(request, token):
 
 
 def public_quote_pdf(request, token):
-    quote = get_object_or_404(Quote.objects.select_related("client", "owner").prefetch_related("line_items"), public_token=token)
+    quote = get_public_quote(token)
     quote.check_expiry()
     quote.refresh_from_db()
     buffer = render_quote_pdf(quote, profile_for(quote.owner), include_client_email=False)

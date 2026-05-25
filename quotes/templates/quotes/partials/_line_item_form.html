@@ -1,20 +1,21 @@
+{% load quote_extras %}
 <div>
-  <label class="text-xs font-medium text-slate-500">Catalog</label>
+  <label class="text-xs font-medium text-slate-500" for="{{ form.catalog_item.id_for_label }}">Catalog</label>
   {{ form.catalog_item }}
   {% if form.catalog_item.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.catalog_item.errors|join:" " }}</p>{% endif %}
 </div>
 <div>
-  <label class="text-xs font-medium text-slate-500">Description</label>
+  <label class="text-xs font-medium text-slate-500" for="{{ form.description.id_for_label }}">Description</label>
   {{ form.description }}
   {% if form.description.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.description.errors|join:" " }}</p>{% endif %}
 </div>
 <div>
-  <label class="text-xs font-medium text-slate-500">Qty</label>
+  <label class="text-xs font-medium text-slate-500" for="{{ form.quantity.id_for_label }}">Qty</label>
   {{ form.quantity }}
   {% if form.quantity.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.quantity.errors|join:" " }}</p>{% endif %}
 </div>
 <div>
-  <label class="text-xs font-medium text-slate-500">Unit price</label>
+  <label class="text-xs font-medium text-slate-500" for="{{ form.unit_price.id_for_label }}">Unit price</label>
   {{ form.unit_price }}
   {% if form.unit_price.errors %}<p class="mt-1 text-xs text-rose-600">{{ form.unit_price.errors|join:" " }}</p>{% endif %}
 </div>

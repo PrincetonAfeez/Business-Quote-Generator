@@ -12,11 +12,12 @@
   <script defer src="{% static 'js/toasts.js' %}"></script>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900">
-  <div id="toast-stack" class="fixed right-4 top-4 z-50 flex w-80 flex-col gap-2"></div>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div id="toast-stack" class="fixed right-4 top-4 z-50 flex w-80 flex-col gap-2" aria-live="polite" aria-atomic="true"></div>
   <header class="border-b border-slate-200 bg-white">
-    <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+    <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8" aria-label="Main">
       <a href="{% url 'quotes:dashboard' %}" class="flex items-center gap-2 text-sm font-semibold text-slate-950">
-        <i data-lucide="file-text" class="h-5 w-5 text-cyan-700"></i>
+        <i data-lucide="file-text" class="h-5 w-5 text-cyan-700" aria-hidden="true"></i>
         Business Quote Generator
       </a>
       <div class="flex items-center gap-2 text-sm">
@@ -27,25 +28,25 @@
           <a class="nav-link" href="{% url 'quotes:profile_settings' %}">Profile</a>
           <form method="post" action="{% url 'logout' %}" class="inline">
             {% csrf_token %}
-            <button class="icon-button" title="Log out" type="submit"><i data-lucide="log-out" class="h-4 w-4"></i></button>
+            <button class="icon-button" type="submit" aria-label="Log out"><i data-lucide="log-out" class="h-4 w-4" aria-hidden="true"></i></button>
           </form>
         {% else %}
           <a class="nav-link" href="{% url 'login' %}">Log in</a>
-          <a class="button-primary" href="{% url 'quotes:signup' %}"><i data-lucide="user-plus" class="h-4 w-4"></i> Sign up</a>
+          <a class="button-primary" href="{% url 'quotes:signup' %}"><i data-lucide="user-plus" class="h-4 w-4" aria-hidden="true"></i> Sign up</a>
         {% endif %}
       </div>
     </nav>
   </header>
 
   {% if messages %}
-    <div class="mx-auto mt-4 max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto mt-4 max-w-7xl px-4 sm:px-6 lg:px-8" role="alert" aria-live="polite">
       {% for message in messages %}
         <div class="mb-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">{{ message }}</div>
       {% endfor %}
     </div>
   {% endif %}
 
-  <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+  <main id="main" class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
     {% block content %}{% endblock %}
   </main>
   <script>window.lucide && window.lucide.createIcons();</script>

@@ -1,18 +1,20 @@
 <aside class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-  <form id="quote-filters" class="space-y-4" hx-get="{% url 'quotes:quote_list' %}" hx-target="#quote-feed" hx-select="tr" hx-trigger="change" hx-push-url="true">
+  <form id="quote-filters" class="space-y-4" hx-get="{% url 'quotes:quote_list' %}" hx-target="#quote-feed" hx-select="tr" hx-trigger="change" hx-include="#quote-search" hx-push-url="true" hx-indicator="#quote-list-indicator">
     <div class="flex items-center justify-between">
       <h2 class="font-semibold">Filters</h2>
       <a class="text-xs text-cyan-700" href="{% url 'quotes:quote_list' %}">Clear filters</a>
     </div>
     <div class="flex items-center justify-between text-sm text-slate-500">
-      <span>Favorites: <span id="favorite-count">{{ favorite_count }}</span></span>
+      <span>Favorites: <span id="sidebar-favorite-count">{{ favorite_count }}</span></span>
     </div>
-    <label class="block text-sm font-medium">Status</label>
-    <div class="grid gap-2 text-sm">
-      {% for value,label in statuses %}
-        <label class="flex items-center gap-2"><input type="checkbox" name="status" value="{{ value }}" {% if value in selected_statuses %}checked{% endif %}> {{ label }}</label>
-      {% endfor %}
-    </div>
+    <fieldset>
+      <legend class="text-sm font-medium">Status</legend>
+      <div class="mt-2 grid gap-2 text-sm">
+        {% for value,label in statuses %}
+          <label class="flex items-center gap-2"><input type="checkbox" name="status" value="{{ value }}" {% if value in selected_statuses %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </div>
+    </fieldset>
     <label class="block text-sm font-medium">Client</label>
     <select name="client" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
       <option value="">Any client</option>

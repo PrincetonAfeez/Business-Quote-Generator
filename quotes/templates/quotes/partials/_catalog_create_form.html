@@ -1,0 +1,14 @@
+<div id="catalog-create" class="border-t border-slate-200 p-4">
+  <h2 class="mb-3 text-sm font-semibold text-slate-700">New catalog item</h2>
+  <form class="grid gap-3 md:grid-cols-2" method="post"
+        hx-post="{% url 'quotes:catalog_create' %}"
+        hx-target="#catalog-rows"
+        hx-swap="beforeend"
+        hx-on::after-request="if (event.detail.successful) this.reset();">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div class="md:col-span-2">
+      <button class="button-primary" type="submit"><i data-lucide="plus" class="h-4 w-4"></i> Add item</button>
+    </div>
+  </form>
+</div>

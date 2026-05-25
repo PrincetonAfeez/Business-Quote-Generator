@@ -14,13 +14,18 @@
             <option value="{{ quote.pk }}">{{ quote.number }}</option>
           {% endfor %}
         </select>
-        <button class="icon-button" title="Add to quote" type="submit"><i data-lucide="plus" class="h-4 w-4"></i></button>
+        <button class="icon-button" type="submit" aria-label="Add to quote"><i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i></button>
       </form>
     {% endif %}
-    <a class="button-secondary" href="{% url 'quotes:catalog_update' item.pk %}"><i data-lucide="pencil" class="h-4 w-4"></i> Edit</a>
+    <button class="button-secondary" type="button"
+            hx-get="{% url 'quotes:catalog_update' item.pk %}"
+            hx-target="#catalog-{{ item.pk }}"
+            hx-swap="outerHTML">
+      <i data-lucide="pencil" class="h-4 w-4" aria-hidden="true"></i> Edit
+    </button>
     <form class="inline" method="post" action="{% url 'quotes:catalog_delete' item.pk %}" hx-post="{% url 'quotes:catalog_delete' item.pk %}" hx-target="#catalog-{{ item.pk }}" hx-swap="outerHTML" hx-confirm="Delete catalog item {{ item.name }}?">
       {% csrf_token %}
-      <button class="icon-button" title="Delete item" type="submit"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+      <button class="icon-button" type="submit" aria-label="Delete catalog item {{ item.name }}"><i data-lucide="trash-2" class="h-4 w-4" aria-hidden="true"></i></button>
     </form>
   </td>
 </tr>

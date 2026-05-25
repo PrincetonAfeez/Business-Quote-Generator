@@ -1,11 +1,20 @@
 <div class="overflow-x-auto">
   <table class="min-w-full divide-y divide-slate-200 text-sm">
-    <tbody class="divide-y divide-slate-100">
+    <thead class="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+      <tr>
+        <th class="px-4 py-3">Client</th>
+        <th class="px-4 py-3">Email</th>
+        <th class="px-4 py-3">Phone</th>
+        <th class="px-4 py-3 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="client-rows" class="divide-y divide-slate-100">
       {% for client in clients %}
         {% include "quotes/partials/_client_row.html" %}
       {% empty %}
-        <tr><td class="px-4 py-8 text-center text-slate-500">No clients yet. Create your first one.</td></tr>
+        <tr id="client-empty"><td colspan="4" class="px-4 py-8 text-center text-slate-500">No clients yet. Add one below.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% include "quotes/partials/_client_create_form.html" %}

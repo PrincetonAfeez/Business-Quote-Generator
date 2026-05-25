@@ -29,20 +29,82 @@ class QuoteLineItemInline(admin.TabularInline):
     fields = ("description", "quantity", "unit_price", "line_total", "position")
     readonly_fields = ("line_total",)
 
+    def _quote_locked(self, obj):
+        return obj is not None and obj.status != Quote.STATUS_DRAFT
+
+    def get_readonly_fields(self, request, obj=None):
+        if self._quote_locked(obj):
+            return self.fields
+        return self.readonly_fields
+
+    def has_add_permission(self, request, obj=None):
+        if self._quote_locked(obj):
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if self._quote_locked(obj):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if self._quote_locked(obj):
+            return False
+        return super().has_delete_permission(request, obj)
+
 
 @admin.register(Quote)
 class QuoteAdmin(admin.ModelAdmin):
     list_display = ("number", "client", "status", "issue_date", "expiry_date", "total", "owner", "is_favorite")
     search_fields = ("number", "client__name", "client__company", "owner__username")
     list_filter = ("status", "is_favorite", "issue_date")
-    readonly_fields = ("number", "status", "public_token", "viewed_at", "accepted_at", "declined_at")
+    readonly_fields = (
+        "number",
+        "status",
+        "public_token",
+        "viewed_at",
+        "accepted_at",
+        "declined_at",
+        "subtotal",
+        "tax_amount",
+        "discount_amount",
+        "total",
+    )
     inlines = [QuoteLineItemInline]
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(self.readonly_fields)
+        if obj and obj.status != Quote.STATUS_DRAFT:
+            readonly += [
+                "client",
+                "issue_date",
+                "expiry_date",
+                "tax_rate",
+                "discount_type",
+                "discount_value",
+                "notes",
+                "terms",
+                "is_favorite",
+                "archived_at",
+            ]
+        return readonly
 
 
 @admin.register(QuoteLineItem)
 class QuoteLineItemAdmin(admin.ModelAdmin):
     list_display = ("quote", "description", "quantity", "unit_price", "line_total", "position")
     search_fields = ("quote__number", "description")
+    readonly_fields = ("line_total",)
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.quote.status != Quote.STATUS_DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.quote.status != Quote.STATUS_DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
 
 
 @admin.register(ActivityEvent)

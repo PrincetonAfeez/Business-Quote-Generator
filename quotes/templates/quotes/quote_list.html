@@ -7,26 +7,30 @@
     <h1 class="text-2xl font-semibold">Quotes</h1>
     <p id="quote-count" class="text-sm text-slate-500">{{ total_count }} quotes</p>
   </div>
-  <a href="{% url 'quotes:quote_create' %}" class="button-primary"><i data-lucide="plus" class="h-4 w-4"></i> New quote</a>
+  <div class="flex items-center gap-3">
+    <span id="quote-list-indicator" class="htmx-indicator text-sm text-slate-500">Updating…</span>
+    <a href="{% url 'quotes:quote_create' %}" class="button-primary"><i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i> New quote</a>
+  </div>
 </div>
 
 <section class="grid gap-5 lg:grid-cols-[280px_1fr]">
   {% include "quotes/partials/_filter_sidebar.html" %}
   <div class="overflow-hidden rounded-md border border-slate-200 bg-white">
     <div class="border-b border-slate-200 p-3">
-      <input class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" type="search" name="q" value="{{ request.GET.q }}" placeholder="Search quote number, client, or company"
-             hx-get="{% url 'quotes:quote_list' %}" hx-target="#quote-feed" hx-select="tr" hx-trigger="keyup changed delay:300ms, search" hx-include="#quote-filters" hx-push-url="true">
+      <label class="sr-only" for="quote-search">Search quotes</label>
+      <input id="quote-search" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" type="search" name="q" value="{{ request.GET.q }}" placeholder="Search quote number, client, or company" aria-label="Search quote number, client, or company"
+             hx-get="{% url 'quotes:quote_list' %}" hx-target="#quote-feed" hx-select="tr" hx-trigger="keyup changed delay:300ms, search" hx-include="#quote-filters" hx-push-url="true" hx-indicator="#quote-list-indicator">
     </div>
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-slate-200 text-sm">
         <thead class="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th class="px-4 py-3"><a href="?{% sort_link 'number' 'asc' %}">Number {% sort_indicator 'number' %}</a></th>
-            <th class="px-4 py-3"><a href="?{% sort_link 'client' 'asc' %}">Client {% sort_indicator 'client' %}</a></th>
-            <th class="px-4 py-3"><a href="?{% sort_link 'issue_date' 'desc' %}">Issue date {% sort_indicator 'issue_date' %}</a></th>
-            <th class="px-4 py-3"><a href="?{% sort_link 'total' 'desc' %}">Total {% sort_indicator 'total' %}</a></th>
-            <th class="px-4 py-3"><a href="?{% sort_link 'status' 'asc' %}">Status {% sort_indicator 'status' %}</a></th>
-            <th class="px-4 py-3"></th>
+            <th class="px-4 py-3" aria-sort="{% sort_aria 'number' %}"><a href="?{% sort_link 'number' 'asc' %}">Number {% sort_indicator 'number' %}</a></th>
+            <th class="px-4 py-3" aria-sort="{% sort_aria 'client' %}"><a href="?{% sort_link 'client' 'asc' %}">Client {% sort_indicator 'client' %}</a></th>
+            <th class="px-4 py-3" aria-sort="{% sort_aria 'issue_date' %}"><a href="?{% sort_link 'issue_date' 'desc' %}">Issue date {% sort_indicator 'issue_date' %}</a></th>
+            <th class="px-4 py-3" aria-sort="{% sort_aria 'total' %}"><a href="?{% sort_link 'total' 'desc' %}">Total {% sort_indicator 'total' %}</a></th>
+            <th class="px-4 py-3" aria-sort="{% sort_aria 'status' %}"><a href="?{% sort_link 'status' 'asc' %}">Status {% sort_indicator 'status' %}</a></th>
+            <th class="px-4 py-3"><span class="sr-only">Favorite</span></th>
           </tr>
         </thead>
         <tbody id="quote-feed" class="divide-y divide-slate-100">

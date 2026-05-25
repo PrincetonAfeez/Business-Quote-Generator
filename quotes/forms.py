@@ -84,7 +84,7 @@ class ClientForm(OwnerFilteredModelForm):
         }
 
     def clean_email(self):
-        email = (self.cleaned_data.get("email") or "").strip()
+        email = (self.cleaned_data.get("email") or "").strip().lower()
         if not email:
             return email
         qs = Client.objects.filter(owner=self.owner, email__iexact=email)

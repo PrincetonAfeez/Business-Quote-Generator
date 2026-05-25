@@ -5,7 +5,17 @@
   </div>
 {% else %}
   <span id="public-quote-status" hx-swap-oob="true" class="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium {{ quote.status|status_badge }}">{{ quote.get_status_display }}</span>
-  <div id="public-actions" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-    Thank you. This quote is now {{ quote.get_status_display|lower }}.
-  </div>
+  {% if quote.status == "accepted" %}
+    <div id="public-actions" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      Thank you. This quote has been accepted.
+    </div>
+  {% elif quote.status == "declined" %}
+    <div id="public-actions" class="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+      You declined this quote. Contact the sender if you need a revised version.
+    </div>
+  {% else %}
+    <div id="public-actions" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      Thank you. This quote is now {{ quote.get_status_display|lower }}.
+    </div>
+  {% endif %}
 {% endif %}

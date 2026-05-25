@@ -42,6 +42,14 @@ def sort_indicator(context, column):
     return "↑" if request.GET.get("dir", "desc") == "asc" else "↓"
 
 
+@register.simple_tag(takes_context=True)
+def sort_aria(context, column):
+    request = context["request"]
+    if request.GET.get("sort", "issue_date") != column:
+        return "none"
+    return "ascending" if request.GET.get("dir", "desc") == "asc" else "descending"
+
+
 @register.filter
 def currency(value):
     return f"${money(value):,.2f}"
@@ -67,3 +75,12 @@ def status_badge(status):
         "declined": "bg-rose-100 text-rose-700",
         "expired": "bg-amber-100 text-amber-700",
     }.get(status, "bg-slate-100 text-slate-700")
+
+
+@register.filter
+def discount_summary(quote):
+    if quote.discount_type == Quote.DISCOUNT_NONE:
+        return "None"
+    if quote.discount_type == Quote.DISCOUNT_PERCENT:
+        return f"{quote.discount_value}%"
+    return f"${money(quote.discount_value):,.2f} flat"

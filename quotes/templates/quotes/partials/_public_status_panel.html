@@ -1,0 +1,22 @@
+{% load quote_extras %}
+{% if transition_error %}
+  <div id="public-actions" class="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+    {{ transition_error }}
+  </div>
+{% elif quote.status == "accepted" %}
+  <div id="public-actions" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+    Thank you. This quote has been accepted.
+  </div>
+{% elif quote.status == "declined" %}
+  <div id="public-actions" class="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+    You declined this quote. Contact the sender if you need a revised version.
+  </div>
+{% elif quote.status == "expired" %}
+  <div id="public-actions" class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+    This quote expired on {{ quote.expiry_date }} and can no longer be accepted.
+  </div>
+{% else %}
+  <div id="public-actions" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+    Thank you. This quote is now {{ quote.get_status_display|lower }}.
+  </div>
+{% endif %}
