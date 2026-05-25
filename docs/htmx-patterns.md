@@ -18,7 +18,7 @@ New quote line items append to `#line-items` with `hx-swap="beforeend"`. The das
 
 ## `none`
 
-The line-item reorder endpoint returns an empty body with an `HX-Trigger` toast. It is the fire-and-forget pattern for an action whose only visible feedback is the toast notification.
+The line-item reorder endpoint returns an empty body with an `HX-Trigger` toast. It is the fire-and-forget pattern for an action whose only visible feedback is the toast notification. **There is no drag-and-drop UI** — reorder is server/API-only for this academic scope.
 
 ## Public quote `Sent → Viewed`
 
@@ -26,7 +26,7 @@ The public quote page transitions `Sent → Viewed` on the first non-bot **full 
 
 ## `hx-swap-oob`
 
-Line-item responses include the changed row plus out-of-band swaps for `#grand-total-panel` and `#favorite-count`. Quote list searches update pagination and quote count out of band.
+Line-item responses include the changed row plus an out-of-band swap for `#grand-total-panel`. Favorite count OOB updates happen on quote-list and favorite-toggle responses only. Quote list searches update pagination and quote count out of band.
 
 ## `hx-include`
 

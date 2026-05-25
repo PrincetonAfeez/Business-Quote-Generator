@@ -52,7 +52,7 @@ class MoneyAndModelTests(QuoteTestMixin, TestCase):
 
     def test_total_rounding_boundary_cases(self):
         quote = self.make_quote(tax_rate=Decimal("0.00"))
-        QuoteLineItem.objects.create(quote=quote, description="Rounding", quantity=Decimal("1.00"), unit_price=Decimal("0.015"))
+        QuoteLineItem.objects.create(quote=quote, description="Rounding", quantity=Decimal("1.50"), unit_price=Decimal("0.01"))
         quote.refresh_from_db()
         self.assertEqual(quote.total, Decimal("0.02"))
 
@@ -67,6 +67,18 @@ class MoneyAndModelTests(QuoteTestMixin, TestCase):
         quote.refresh_from_db()
         with self.assertRaises(ValueError):
             quote.calculate_totals()
+
+    def test_save_rejects_expiry_on_or_before_issue_date(self):
+        from django.core.exceptions import ValidationError
+
+        today = timezone.localdate()
+        with self.assertRaises(ValidationError):
+            Quote.objects.create(
+                owner=self.user,
+                client=self.client_record,
+                issue_date=today,
+                expiry_date=today,
+            )
 
     def test_quote_numbering_is_per_user_and_per_year(self):
         q1 = self.make_quote(issue_date=date(2026, 1, 1))
@@ -114,6 +126,13 @@ class ViewTests(QuoteTestMixin, TestCase):
     def test_auth_required_for_quote_list(self):
         response = self.client.get(reverse("quotes:quote_list"))
         self.assertEqual(response.status_code, 302)
+
+    def test_quote_create_redirects_when_no_clients_exist(self):
+        Quote.objects.all().delete()
+        Client.objects.filter(owner=self.user).delete()
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:quote_create"))
+        self.assertRedirects(response, reverse("quotes:client_create"))
 
     def test_cross_user_quote_detail_is_forbidden(self):
         quote = Quote.objects.create(owner=self.other, client=self.other_client, issue_date=date(2026, 1, 5), expiry_date=date(2026, 2, 4))
@@ -364,8 +383,9 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
 
     def test_signup_redirects_when_already_authenticated(self):
         self.client.login(username="owner", password="pass12345")
-        response = self.client.get(reverse("quotes:signup"))
+        response = self.client.get(reverse("quotes:signup"), follow=True)
         self.assertRedirects(response, reverse("quotes:dashboard"))
+        self.assertContains(response, "already signed in")
 
     def test_catalog_add_to_quote_unknown_quote_redirects(self):
         item = CatalogItem.objects.create(owner=self.user, name="Workshop", default_unit_price=Decimal("100.00"))
@@ -391,6 +411,8 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         self.assertFalse(quote_has_status(quote, "accepted"))
 
     def test_hx_quote_feed_oob_elements_are_not_table_rows(self):
+        from pathlib import Path
+
         self.make_quote()
         self.client.login(username="owner", password="pass12345")
         response = self.client.get(reverse("quotes:quote_list"), HTTP_HX_REQUEST="true")
@@ -399,13 +421,7 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         self.assertIn("hx-swap-oob", content)
         self.assertIn("<tr", content)
         self.assertNotIn("<tbody", content)
-
-    def test_quote_create_redirects_when_no_clients_exist(self):
-        Quote.objects.all().delete()
-        Client.objects.filter(owner=self.user).delete()
-        self.client.login(username="owner", password="pass12345")
-        response = self.client.get(reverse("quotes:quote_create"))
-        self.assertRedirects(response, reverse("quotes:client_create"))
+        self.assertIn('hx-select="tr"', (Path(__file__).resolve().parents[1] / "quotes" / "templates" / "quotes" / "quote_list.html").read_text())
 
     def test_quote_revoke_public_link(self):
         quote = self.make_quote()
@@ -610,8 +626,239 @@ class ExtendedCoverageTests(QuoteTestMixin, TestCase):
         response = self.client.get(reverse("password_reset_confirm", args=["bad", "bad-token"]))
         self.assertEqual(response.status_code, 200)
 
+    def test_quote_update_hx_preserves_header_target(self):
+        quote = self.make_quote()
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:quote_update", args=[quote.pk]),
+            {
+                "client": quote.client_id,
+                "issue_date": quote.issue_date.isoformat(),
+                "expiry_date": quote.expiry_date.isoformat(),
+                "tax_rate": "0.00",
+                "discount_type": Quote.DISCOUNT_NONE,
+                "discount_value": "0.00",
+                "notes": "Updated",
+                "terms": "",
+                "is_favorite": "",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Updated")
+        self.assertContains(response, "Edit header")
 
-class DeploymentConfigTests(TestCase):
+    def test_zero_total_quote_can_be_sent(self):
+        from unittest import mock
+        quote = self.make_quote()
+        QuoteLineItem.objects.create(quote=quote, description="Complimentary", quantity=1, unit_price=Decimal("0.00"))
+        quote.refresh_from_db()
+        self.client.login(username="owner", password="pass12345")
+        with mock.patch("quotes.views.send_mail"):
+            self.client.post(reverse("quotes:quote_send", args=[quote.pk]))
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, Quote.STATUS_SENT)
+
+    def test_public_decline_writes_audit_metadata(self):
+        quote = self.make_quote()
+        quote.ensure_public_token()
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        quote.transition_to(Quote.STATUS_VIEWED, ActivityEvent.EVENT_VIEWED)
+        response = self.client.post(
+            reverse("quotes:public_quote", args=[quote.public_token]),
+            {"action": "decline"},
+            HTTP_HX_REQUEST="true",
+            HTTP_USER_AGENT="Tests",
+        )
+        self.assertEqual(response.status_code, 200)
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, Quote.STATUS_DECLINED)
+        event = quote.activity_events.get(event_type=ActivityEvent.EVENT_DECLINED)
+        self.assertIn("user_agent", event.metadata)
+
+    def test_stale_draft_expires_on_quote_list(self):
+        quote = self.make_quote(issue_date=timezone.localdate() - timedelta(days=30))
+        Quote.objects.filter(pk=quote.pk).update(expiry_date=timezone.localdate() - timedelta(days=1))
+        self.client.login(username="owner", password="pass12345")
+        self.client.get(reverse("quotes:quote_list"))
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, Quote.STATUS_EXPIRED)
+
+    def test_last_line_item_delete_restores_empty_state(self):
+        quote = self.make_quote()
+        item = QuoteLineItem.objects.create(quote=quote, description="Only", quantity=1, unit_price=Decimal("10.00"))
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:line_item_delete", args=[quote.pk, item.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="line-items-empty"')
+
+    def test_duplicate_client_email_returns_form_error(self):
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:client_create"),
+            {
+                "name": "Duplicate",
+                "company": "",
+                "email": "ada@example.com",
+                "phone": "",
+                "billing_address": "",
+                "notes": "",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "already exists")
+
+    def test_archived_quote_detail_redirects_to_list(self):
+        quote = self.make_quote()
+        QuoteLineItem.objects.create(quote=quote, description="W", quantity=1, unit_price=Decimal("10.00"))
+        quote.ensure_public_token()
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        quote.archived_at = timezone.now()
+        quote.save(update_fields=["archived_at", "updated_at"])
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:quote_detail", args=[quote.pk]))
+        self.assertRedirects(response, reverse("quotes:quote_list"))
+
+    def test_line_item_reorder_rejects_partial_id_list(self):
+        quote = self.make_quote()
+        a = QuoteLineItem.objects.create(quote=quote, description="A", quantity=1, unit_price=Decimal("10.00"), position=1)
+        QuoteLineItem.objects.create(quote=quote, description="B", quantity=1, unit_price=Decimal("20.00"), position=2)
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(reverse("quotes:line_item_reorder", args=[quote.pk]), {"item": [str(a.pk)]})
+        self.assertEqual(response.status_code, 400)
+
+    def test_flat_discount_value_capped_when_lines_removed(self):
+        quote = self.make_quote(discount_type=Quote.DISCOUNT_FLAT, discount_value=Decimal("400.00"))
+        item = QuoteLineItem.objects.create(quote=quote, description="Work", quantity=1, unit_price=Decimal("500.00"))
+        quote.refresh_from_db()
+        item.delete()
+        quote.refresh_from_db()
+        self.assertEqual(quote.discount_value, Decimal("0.00"))
+        self.assertEqual(quote.discount_amount, Decimal("0.00"))
+
+    def test_signup_creates_user_and_logs_in(self):
+        response = self.client.post(
+            reverse("quotes:signup"),
+            {
+                "username": "newuser",
+                "email": "new@example.com",
+                "password1": "complex-pass-12345",
+                "password2": "complex-pass-12345",
+            },
+        )
+        self.assertRedirects(response, reverse("quotes:dashboard"))
+        self.assertTrue(User.objects.filter(username="newuser").exists())
+        self.assertEqual(int(self.client.session["_auth_user_id"]), User.objects.get(username="newuser").pk)
+
+    def test_client_create_hx_returns_row_partial(self):
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(
+            reverse("quotes:client_create"),
+            {
+                "name": "HX Client",
+                "company": "Partial Co",
+                "email": "hx@example.com",
+                "phone": "",
+                "billing_address": "",
+                "notes": "",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        client = Client.objects.get(email="hx@example.com")
+        self.assertContains(response, f'id="client-{client.pk}"')
+        self.assertIn("show-toast", response.headers["HX-Trigger"])
+
+    def test_quote_list_json_returns_count_and_results(self):
+        quote = self.make_quote()
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.get(reverse("quotes:quote_list"), HTTP_ACCEPT="application/json")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["number"], quote.number)
+
+    def test_quote_has_status_ignores_unknown_names(self):
+        from quotes.templatetags.quote_extras import quote_has_status
+
+        quote = self.make_quote(status=Quote.STATUS_SENT)
+        self.assertTrue(quote_has_status(quote, "sent,unkown"))
+        self.assertFalse(quote_has_status(quote, "accepted,bogus"))
+
+    def test_resend_after_revoke_issues_new_public_link(self):
+        from unittest import mock
+
+        quote = self.make_quote()
+        QuoteLineItem.objects.create(quote=quote, description="W", quantity=1, unit_price=Decimal("100.00"))
+        quote.ensure_public_token()
+        old_token = quote.public_token
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        self.client.login(username="owner", password="pass12345")
+        self.client.post(reverse("quotes:quote_revoke_public_link", args=[quote.pk]))
+        quote.refresh_from_db()
+        self.assertIsNone(quote.public_token)
+        with mock.patch("quotes.views.send_mail"):
+            self.client.post(reverse("quotes:quote_send", args=[quote.pk]))
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, Quote.STATUS_SENT)
+        self.assertIsNotNone(quote.public_token)
+        self.assertNotEqual(quote.public_token, old_token)
+
+    def test_revoke_public_link_after_accept(self):
+        quote = self.make_quote()
+        QuoteLineItem.objects.create(quote=quote, description="W", quantity=1, unit_price=Decimal("100.00"))
+        quote.ensure_public_token()
+        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT)
+        quote.transition_to(Quote.STATUS_VIEWED, ActivityEvent.EVENT_VIEWED)
+        quote.transition_to(Quote.STATUS_ACCEPTED, ActivityEvent.EVENT_ACCEPTED)
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(reverse("quotes:quote_revoke_public_link", args=[quote.pk]), follow=True)
+        quote.refresh_from_db()
+        self.assertIsNone(quote.public_token)
+        self.assertEqual(quote.status, Quote.STATUS_ACCEPTED)
+        self.assertContains(response, "revoked")
+
+    def test_negative_line_item_quantity_rejected_on_save(self):
+        quote = self.make_quote()
+        item = QuoteLineItem(quote=quote, description="Bad", quantity=Decimal("-1.00"), unit_price=Decimal("10.00"))
+        with self.assertRaises(Exception):
+            item.save()
+
+    def test_prod_requires_database_url(self):
+        from pathlib import Path
+
+        prod = (Path(__file__).resolve().parents[1] / "config" / "settings" / "prod.py").read_text()
+        self.assertIn('os.environ["DATABASE_URL"]', prod)
+        self.assertIn("ImproperlyConfigured", prod)
+        self.assertIn("console.EmailBackend", prod)
+
+    def test_zero_default_validity_days_still_creates_quote(self):
+        profile = CompanyProfile.objects.get(owner=self.user)
+        profile.default_validity_days = 0
+        profile.save(update_fields=["default_validity_days"])
+        self.client.login(username="owner", password="pass12345")
+        response = self.client.post(reverse("quotes:quote_create"), {"client": self.client_record.pk})
+        self.assertEqual(response.status_code, 302)
+        quote = Quote.objects.for_user(self.user).latest("id")
+        self.assertGreater(quote.expiry_date, quote.issue_date)
+
+    def test_quote_rejects_client_from_other_owner(self):
+        quote = self.make_quote()
+        quote.client = self.other_client
+        with self.assertRaises(Exception):
+            quote.full_clean()
+
+    def test_line_item_rejects_catalog_item_from_other_owner(self):
+        quote = self.make_quote()
+        other_item = CatalogItem.objects.create(owner=self.other, name="Other", default_unit_price=Decimal("10.00"))
+        item = QuoteLineItem(quote=quote, catalog_item=other_item, description="Bad", quantity=1, unit_price=Decimal("10.00"))
+        with self.assertRaises(Exception):
+            item.full_clean()
+
     def test_requirements_declares_gunicorn(self):
         from pathlib import Path
         requirements = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()

@@ -6,7 +6,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from .models import ActivityEvent, CatalogItem, Client, CompanyProfile, Quote, QuoteLineItem
+from .models import ActivityEvent, CatalogItem, Client, CompanyProfile, Quote, QuoteLineItem, normalized_validity_days
 
 
 CONTROL_CLASS = "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-100"
@@ -29,6 +29,12 @@ class SignupForm(TailwindFormMixin, UserCreationForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.apply_control_classes()
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip()
+        if email and User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("An account with this email already exists.")
+        return email
 
 
 class CompanyProfileForm(TailwindFormMixin, forms.ModelForm):
@@ -53,6 +59,11 @@ class OwnerFilteredModelForm(TailwindFormMixin, forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.apply_control_classes()
 
+    def _post_clean(self):
+        if self.owner and self.instance is not None and not self.instance.owner_id:
+            self.instance.owner = self.owner
+        super()._post_clean()
+
     def save(self, commit=True):
         instance = super().save(commit=False)
         if self.owner and not instance.pk:
@@ -71,6 +82,17 @@ class ClientForm(OwnerFilteredModelForm):
             "billing_address": forms.Textarea(attrs={"rows": 3}),
             "notes": forms.Textarea(attrs={"rows": 3}),
         }
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip()
+        if not email:
+            return email
+        qs = Client.objects.filter(owner=self.owner, email__iexact=email)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError("A client with this email already exists.")
+        return email
 
 
 class CatalogItemForm(OwnerFilteredModelForm):
@@ -103,7 +125,6 @@ class QuoteForm(OwnerFilteredModelForm):
         if self.owner and not instance.pk:
             instance.owner = self.owner
         if commit:
-            instance.full_clean()
             instance.save()
             instance.calculate_totals(save=True)
             self.save_m2m()
@@ -122,7 +143,7 @@ class QuoteCreateForm(TailwindFormMixin, forms.Form):
     def save(self):
         profile = CompanyProfile.objects.for_user(self.owner).first()
         issue_date = timezone.localdate()
-        validity_days = profile.default_validity_days if profile else 30
+        validity_days = normalized_validity_days(profile.default_validity_days if profile else 30)
         quote = Quote.objects.create(
             owner=self.owner,
             client=self.cleaned_data["client"],

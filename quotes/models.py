@@ -10,10 +10,15 @@ from django.utils.crypto import get_random_string
 
 
 MONEY_PLACES = Decimal("0.01")
+MIN_QUOTE_VALIDITY_DAYS = 1
 
 
 def money(value):
     return Decimal(value or 0).quantize(MONEY_PLACES, rounding=ROUND_HALF_UP)
+
+
+def normalized_validity_days(days, fallback=30):
+    return max(days if days is not None else fallback, MIN_QUOTE_VALIDITY_DAYS)
 
 
 class InvalidTransition(ValueError):
@@ -44,7 +49,7 @@ class CompanyProfile(models.Model):
         validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
     )
     default_terms = models.TextField(blank=True)
-    default_validity_days = models.PositiveIntegerField(default=30)
+    default_validity_days = models.PositiveIntegerField(default=30, validators=[MinValueValidator(1)])
 
     objects = OwnedManager()
 
@@ -242,6 +247,8 @@ class Quote(models.Model):
             raise ValidationError({"discount_value": "Percent discount cannot exceed 100."})
         if self.issue_date and self.expiry_date and self.expiry_date <= self.issue_date:
             raise ValidationError({"expiry_date": "Expiry date must be after the issue date."})
+        if self.client_id and self.owner_id and not Client.objects.filter(pk=self.client_id, owner_id=self.owner_id).exists():
+            raise ValidationError({"client": "Client must belong to the quote owner."})
         if self.discount_type == self.DISCOUNT_FLAT and self.pk:
             aggregated = self.line_items.aggregate(total=models.Sum("line_total"))["total"]
             current_subtotal = aggregated or Decimal("0.00")
@@ -249,6 +256,10 @@ class Quote(models.Model):
                 raise ValidationError({"discount_value": "Flat discount cannot exceed the subtotal."})
 
     def save(self, *args, **kwargs):
+        # full_clean() runs on normal saves. Skipped when update_fields is set (including []) so
+        # internal recalc/status writes avoid re-validating derived totals. Fields with
+        # editable=False (number, public_token) are excluded from Field.validate() — if those
+        # were ever made editable=True, first-save validation would need revisiting.
         if kwargs.get("update_fields") is None:
             self.full_clean()
         if self.number:
@@ -279,6 +290,8 @@ class Quote(models.Model):
                 return token
 
     def calculate_totals(self, save=False):
+        # Persists via save(update_fields=...) which skips full_clean(). Discount is re-capped
+        # here so stored totals stay consistent even when header validation is bypassed.
         subtotal = Decimal("0.00")
         if self.pk:
             aggregated = self.line_items.aggregate(total=models.Sum("line_total"))["total"]
@@ -305,8 +318,12 @@ class Quote(models.Model):
         self.discount_amount = discount
         self.tax_amount = tax
         self.total = total
+        update_fields = ["subtotal", "discount_amount", "tax_amount", "total", "updated_at"]
+        if save and self.discount_type == self.DISCOUNT_FLAT and self.discount_value != discount:
+            self.discount_value = discount
+            update_fields.append("discount_value")
         if save:
-            self.save(update_fields=["subtotal", "discount_amount", "tax_amount", "total", "updated_at"])
+            self.save(update_fields=update_fields)
         return self
 
     def transition_to(self, new_status, event_type=None, metadata=None):
@@ -344,7 +361,9 @@ class Quote(models.Model):
         validity_days = (self.expiry_date - self.issue_date).days if self.issue_date and self.expiry_date else 0
         if validity_days <= 0:
             profile = CompanyProfile.objects.filter(owner=self.owner).first()
-            validity_days = profile.default_validity_days if profile else 30
+            validity_days = normalized_validity_days(profile.default_validity_days if profile else 30)
+        else:
+            validity_days = normalized_validity_days(validity_days)
         clone = Quote.objects.create(
             owner=self.owner,
             client=self.client,
@@ -418,7 +437,15 @@ class QuoteLineItem(models.Model):
     def __str__(self):
         return self.description[:80]
 
+    def clean(self):
+        super().clean()
+        if self.catalog_item_id and self.quote_id:
+            quote_owner_id = Quote.objects.filter(pk=self.quote_id).values_list("owner_id", flat=True).first()
+            if quote_owner_id and self.catalog_item.owner_id != quote_owner_id:
+                raise ValidationError({"catalog_item": "Catalog item must belong to the quote owner."})
+
     def save(self, *args, **kwargs):
+        self.full_clean()
         self.line_total = money(Decimal(self.quantity) * Decimal(self.unit_price))
         super().save(*args, **kwargs)
         self.quote.calculate_totals(save=True)

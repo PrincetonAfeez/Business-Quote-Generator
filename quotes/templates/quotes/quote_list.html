@@ -15,7 +15,7 @@
   <div class="overflow-hidden rounded-md border border-slate-200 bg-white">
     <div class="border-b border-slate-200 p-3">
       <input class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" type="search" name="q" value="{{ request.GET.q }}" placeholder="Search quote number, client, or company"
-             hx-get="{% url 'quotes:quote_list' %}" hx-target="#quote-feed" hx-trigger="keyup changed delay:300ms, search" hx-include="#quote-filters" hx-push-url="true">
+             hx-get="{% url 'quotes:quote_list' %}" hx-target="#quote-feed" hx-select="tr" hx-trigger="keyup changed delay:300ms, search" hx-include="#quote-filters" hx-push-url="true">
     </div>
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-slate-200 text-sm">

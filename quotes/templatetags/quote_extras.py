@@ -49,7 +49,11 @@ def currency(value):
 
 @register.filter
 def quote_has_status(quote, names):
-    allowed = {getattr(Quote, f"STATUS_{name.strip().upper()}") for name in names.split(",")}
+    allowed = {
+        value
+        for name in names.split(",")
+        if (value := getattr(Quote, f"STATUS_{name.strip().upper()}", None)) is not None
+    }
     return quote.status in allowed
 
 

@@ -1,2 +1,4 @@
-{% include "quotes/partials/_grand_total_panel.html" %}
-{% include "quotes/partials/_favorite_count.html" %}
+{% include "quotes/partials/_grand_total_panel_oob.html" %}
+{% if not quote.line_items.exists %}
+<p id="line-items-empty" hx-swap-oob="true" class="empty-state">No line items yet.</p>
+{% endif %}

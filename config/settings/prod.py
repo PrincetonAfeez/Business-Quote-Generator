@@ -2,6 +2,8 @@ import importlib.util
 import os
 from urllib.parse import urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *  # noqa: F403
 
 
@@ -15,20 +17,19 @@ if importlib.util.find_spec("whitenoise"):
         "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
     }
 
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    parsed = urlparse(database_url)
-    DATABASES = {  # noqa: F405
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": parsed.path.lstrip("/"),
-            "USER": parsed.username,
-            "PASSWORD": parsed.password,
-            "HOST": parsed.hostname,
-            "PORT": parsed.port or "",
-            "OPTIONS": {"sslmode": "require"},
-        }
+database_url = os.environ["DATABASE_URL"]
+parsed = urlparse(database_url)
+DATABASES = {  # noqa: F405
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": parsed.path.lstrip("/"),
+        "USER": parsed.username,
+        "PASSWORD": parsed.password,
+        "HOST": parsed.hostname,
+        "PORT": parsed.port or "",
+        "OPTIONS": {"sslmode": "require"},
     }
+}
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "True").lower() in {"1", "true", "yes", "on"}
@@ -57,10 +58,7 @@ LOGGING = {  # noqa: F405
 }
 
 if EMAIL_BACKEND.endswith("console.EmailBackend"):  # noqa: F405
-    import warnings
-    warnings.warn(
-        "EMAIL_BACKEND is set to console in production; outbound quote emails will not be delivered. "
-        "Set EMAIL_BACKEND to an SMTP backend in your environment.",
-        RuntimeWarning,
-        stacklevel=2,
+    raise ImproperlyConfigured(
+        "EMAIL_BACKEND cannot be django.core.mail.backends.console.EmailBackend in production. "
+        "Configure an SMTP backend in your environment."
     )

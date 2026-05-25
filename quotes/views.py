@@ -1,6 +1,9 @@
 import json
+import logging
 from datetime import date
 from decimal import Decimal
+
+from django.conf import settings
 
 from django.contrib import messages
 from django.contrib.auth import login
@@ -27,6 +30,9 @@ from .forms import (
 )
 from .models import ActivityEvent, CatalogItem, Client, CompanyProfile, InvalidTransition, Quote, QuoteLineItem
 from .pdf import render_quote_pdf
+
+
+logger = logging.getLogger(__name__)
 
 
 def is_hx(request):
@@ -66,10 +72,38 @@ def get_quote(user, pk):
 
 
 EDITABLE_QUOTE_STATUSES = {Quote.STATUS_DRAFT}
+RESENDABLE_QUOTE_STATUSES = {Quote.STATUS_SENT, Quote.STATUS_VIEWED}
 
 
 def quote_is_editable(quote):
     return quote.archived_at is None and quote.status in EDITABLE_QUOTE_STATUSES
+
+
+def can_send_quote(quote):
+    if quote.archived_at or not quote.client.email or not quote.line_items.exists():
+        return False
+    if quote.status == Quote.STATUS_DRAFT:
+        return Quote.STATUS_SENT in Quote.TRANSITIONS.get(quote.status, set())
+    return quote.status in RESENDABLE_QUOTE_STATUSES and not quote.public_token
+
+
+def build_quote_detail_context(request, quote):
+    editable = quote_is_editable(quote)
+    return {
+        "quote": quote,
+        "profile": profile_for(request.user),
+        "form": QuoteForm(instance=quote, owner=request.user),
+        "line_form": QuoteLineItemForm(owner=request.user, initial={"position": len(quote.line_items.all()) + 1}),
+        "favorite_count": favorite_count(request.user),
+        "quote_is_editable": editable,
+        "can_send_quote": can_send_quote(quote),
+        "can_resend_quote": quote.status in RESENDABLE_QUOTE_STATUSES and not quote.public_token,
+    }
+
+
+def redirect_quote_detail(request, quote, message, level="error"):
+    getattr(messages, level)(request, message)
+    return redirect("quotes:quote_detail", pk=quote.pk)
 
 
 def favorite_count(user):
@@ -93,6 +127,7 @@ BOT_UA_MARKERS = ("bot", "spider", "crawler", "slackbot", "facebookexternalhit",
 
 
 def client_ip(request):
+    """Return best-effort client IP for audit metadata (not authenticated identity)."""
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -100,8 +135,18 @@ def client_ip(request):
 
 
 def is_probable_bot(request):
+    """Heuristic UA filter for public Sent → Viewed; may false-positive on rare substring matches."""
     ua = request.META.get("HTTP_USER_AGENT", "").lower()
     return any(marker in ua for marker in BOT_UA_MARKERS)
+
+
+def expire_stale_quotes(user):
+    stale = Quote.objects.for_user(user).filter(
+        archived_at__isnull=True,
+        expiry_date__lt=timezone.localdate(),
+    ).exclude(status__in=Quote.FINAL_STATUSES)
+    for quote in stale:
+        quote.check_expiry()
 
 
 def quote_queryset_from_request(request):
@@ -148,6 +193,7 @@ def quote_queryset_from_request(request):
 
 
 def quote_list_context(request):
+    expire_stale_quotes(request.user)
     quotes = quote_queryset_from_request(request)
     paginator = Paginator(quotes, 25)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -164,6 +210,7 @@ def quote_list_context(request):
 
 def signup(request):
     if request.user.is_authenticated:
+        messages.info(request, "You are already signed in.")
         return redirect("quotes:dashboard")
     if request.method == "POST":
         form = SignupForm(request.POST)
@@ -185,6 +232,7 @@ def dashboard(request):
     if is_hx(request):
         return render(request, "quotes/partials/_activity_feed_items.html", {"page_obj": page_obj})
 
+    expire_stale_quotes(request.user)
     quotes = Quote.objects.for_user(request.user).filter(archived_at__isnull=True)
     outstanding = quotes.filter(status__in=[Quote.STATUS_SENT, Quote.STATUS_VIEWED])
     accepted_month = quotes.filter(
@@ -260,18 +308,12 @@ def quote_create(request):
 @login_required
 def quote_detail(request, pk):
     quote = get_quote(request.user, pk)
+    if quote.archived_at:
+        messages.info(request, f"{quote.number} is archived and no longer on the active list.")
+        return redirect("quotes:quote_list")
     if wants_json(request):
         return JsonResponse(quote.to_dict())
-    line_form = QuoteLineItemForm(owner=request.user, initial={"position": len(quote.line_items.all()) + 1})
-    form = QuoteForm(instance=quote, owner=request.user)
-    context = {
-        "quote": quote,
-        "profile": profile_for(request.user),
-        "form": form,
-        "line_form": line_form,
-        "favorite_count": favorite_count(request.user),
-    }
-    return render(request, "quotes/quote_detail.html", context)
+    return render(request, "quotes/quote_detail.html", build_quote_detail_context(request, quote))
 
 
 @login_required
@@ -279,25 +321,39 @@ def quote_detail(request, pk):
 def quote_update(request, pk):
     quote = get_quote(request.user, pk)
     if not quote_is_editable(quote):
-        response = render(
-            request,
-            "quotes/partials/_quote_header.html",
-            {"quote": quote, "form": QuoteForm(instance=quote, owner=request.user)},
-            status=409,
-        )
-        return add_toast(response, f"Quote {quote.number} is locked and cannot be edited.", "error")
+        message = f"Quote {quote.number} is locked and cannot be edited."
+        if is_hx(request):
+            response = render(
+                request,
+                "quotes/partials/_quote_header.html",
+                {"quote": quote, "form": QuoteForm(instance=quote, owner=request.user), "quote_is_editable": False},
+                status=409,
+            )
+            return add_toast(response, message, "error")
+        return redirect_quote_detail(request, quote, message)
     form = QuoteForm(request.POST, instance=quote, owner=request.user)
     if form.is_valid():
         quote = form.save()
         quote.record_event(ActivityEvent.EVENT_EDITED)
+        if is_hx(request):
+            response = render(
+                request,
+                "quotes/partials/_quote_header.html",
+                {"quote": quote, "form": QuoteForm(instance=quote, owner=request.user), "quote_is_editable": True},
+            )
+            return add_toast(response, "Quote header saved.")
+        messages.success(request, "Quote header saved.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    if is_hx(request):
         response = render(
             request,
             "quotes/partials/_quote_header.html",
-            {"quote": quote, "form": QuoteForm(instance=quote, owner=request.user)},
+            {"quote": quote, "form": form, "quote_is_editable": True},
+            status=422,
         )
-        return add_toast(response, "Quote header saved.")
-    response = render(request, "quotes/partials/_quote_header_form.html", {"quote": quote, "form": form}, status=422)
-    return add_toast(response, "Please fix the quote header.", "error")
+        return add_toast(response, "Please fix the quote header.", "error")
+    messages.error(request, "Please fix the quote header.")
+    return redirect("quotes:quote_detail", pk=quote.pk)
 
 
 @login_required
@@ -341,7 +397,9 @@ def quote_duplicate(request, pk):
 @require_POST
 def quote_send(request, pk):
     quote = get_quote(request.user, pk)
-    if Quote.STATUS_SENT not in Quote.TRANSITIONS.get(quote.status, set()):
+    is_initial_send = quote.status == Quote.STATUS_DRAFT
+    is_resend = quote.status in RESENDABLE_QUOTE_STATUSES and not quote.public_token
+    if not is_initial_send and not is_resend:
         messages.error(request, f"Quote {quote.number} cannot be sent from status '{quote.get_status_display()}'.")
         return redirect("quotes:quote_detail", pk=quote.pk)
     if not quote.client.email:
@@ -350,8 +408,8 @@ def quote_send(request, pk):
     if not quote.line_items.exists():
         messages.error(request, "Add at least one line item before sending the quote.")
         return redirect("quotes:quote_detail", pk=quote.pk)
-    if quote.total <= 0:
-        messages.error(request, "Quote total must be greater than zero before sending.")
+    if settings.EMAIL_BACKEND.endswith("console.EmailBackend") and not settings.DEBUG:
+        messages.error(request, "Quote email is not configured for production delivery.")
         return redirect("quotes:quote_detail", pk=quote.pk)
     token_was_empty = not quote.public_token
     try:
@@ -364,8 +422,12 @@ def quote_send(request, pk):
             recipient_list=[quote.client.email],
             fail_silently=False,
         )
-        quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT, {"public_url": public_url})
-        messages.success(request, f"{quote.number} sent.")
+        if is_initial_send:
+            quote.transition_to(Quote.STATUS_SENT, ActivityEvent.EVENT_SENT, {"public_url": public_url})
+            messages.success(request, f"{quote.number} sent.")
+        else:
+            quote.record_event(ActivityEvent.EVENT_SENT, {"public_url": public_url, "resend": True})
+            messages.success(request, f"{quote.number} resent with a new public link.")
     except InvalidTransition as exc:
         messages.error(request, str(exc))
     except Exception as exc:
@@ -373,8 +435,12 @@ def quote_send(request, pk):
             try:
                 quote.public_token = None
                 quote.save(update_fields=["public_token", "updated_at"])
-            except Exception:
-                pass
+            except Exception as rollback_exc:
+                logger.warning(
+                    "Failed to roll back public token for quote %s: %s",
+                    quote.pk,
+                    rollback_exc,
+                )
         messages.error(request, f"Could not send {quote.number}: {exc}")
     return redirect("quotes:quote_detail", pk=quote.pk)
 
@@ -383,6 +449,12 @@ def quote_send(request, pk):
 @require_POST
 def quote_toggle_favorite(request, pk):
     quote = get_quote(request.user, pk)
+    if quote.archived_at:
+        msg = f"{quote.number} is archived and cannot be favorited."
+        if is_hx(request):
+            return add_toast(HttpResponse("", status=409), msg, "error")
+        messages.error(request, msg)
+        return redirect("quotes:quote_list")
     quote.is_favorite = not quote.is_favorite
     quote.save(update_fields=["is_favorite", "updated_at"])
     if not is_hx(request):
@@ -411,11 +483,10 @@ def quote_pdf(request, pk):
 def line_item_add(request, pk):
     quote = get_quote(request.user, pk)
     if not quote_is_editable(quote):
-        return add_toast(
-            HttpResponse("", status=409),
-            f"Quote {quote.number} is locked and cannot be edited.",
-            "error",
-        )
+        message = f"Quote {quote.number} is locked and cannot be edited."
+        if is_hx(request):
+            return add_toast(HttpResponse("", status=409), message, "error")
+        return redirect_quote_detail(request, quote, message)
     form = QuoteLineItemForm(request.POST, owner=request.user)
     if form.is_valid():
         item = form.save(commit=False)
@@ -424,13 +495,19 @@ def line_item_add(request, pk):
             item.position = quote.line_items.count() + 1
         item.save()
         quote.record_event(ActivityEvent.EVENT_EDITED, {"line_item": item.id, "action": "added"})
-        response = render(
-            request,
-            "quotes/partials/_line_item_response.html",
-            {"item": item, "quote": quote, "favorite_count": favorite_count(request.user)},
-        )
-        return add_toast(response, "Line item added.")
-    return render(request, "quotes/partials/_line_item_form.html", {"form": form, "quote": quote}, status=422)
+        if is_hx(request):
+            response = render(
+                request,
+                "quotes/partials/_line_item_response.html",
+                {"item": item, "quote": quote, "favorite_count": favorite_count(request.user), "quote_is_editable": True},
+            )
+            return add_toast(response, "Line item added.")
+        messages.success(request, "Line item added.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    if is_hx(request):
+        return render(request, "quotes/partials/_line_item_form.html", {"form": form, "quote": quote}, status=422)
+    messages.error(request, "Please fix the line item.")
+    return redirect("quotes:quote_detail", pk=quote.pk)
 
 
 @login_required
@@ -438,24 +515,34 @@ def line_item_add(request, pk):
 def line_item_update(request, pk, item_pk):
     quote = get_quote(request.user, pk)
     if not quote_is_editable(quote):
-        return add_toast(
-            HttpResponse("", status=409),
-            f"Quote {quote.number} is locked and cannot be edited.",
-            "error",
-        )
+        message = f"Quote {quote.number} is locked and cannot be edited."
+        if is_hx(request):
+            return add_toast(HttpResponse("", status=409), message, "error")
+        return redirect_quote_detail(request, quote, message)
     item = get_owned(QuoteLineItem, request.user, item_pk, quote=quote)
     form = QuoteLineItemForm(request.POST, instance=item, owner=request.user)
     if form.is_valid():
         item = form.save()
         quote.record_event(ActivityEvent.EVENT_EDITED, {"line_item": item.id, "action": "edited"})
         quote.refresh_from_db()
-        response = render(
+        if is_hx(request):
+            response = render(
+                request,
+                "quotes/partials/_line_item_response.html",
+                {"item": item, "quote": quote, "favorite_count": favorite_count(request.user), "quote_is_editable": True},
+            )
+            return add_toast(response, "Line item updated.")
+        messages.success(request, "Line item updated.")
+        return redirect("quotes:quote_detail", pk=quote.pk)
+    if is_hx(request):
+        return render(
             request,
-            "quotes/partials/_line_item_response.html",
-            {"item": item, "quote": quote, "favorite_count": favorite_count(request.user)},
+            "quotes/partials/_line_item_row.html",
+            {"item": item, "quote": quote, "form": form, "quote_is_editable": True},
+            status=422,
         )
-        return add_toast(response, "Line item updated.")
-    return render(request, "quotes/partials/_line_item_row.html", {"item": item, "quote": quote, "form": form}, status=422)
+    messages.error(request, "Please fix the line item.")
+    return redirect("quotes:quote_detail", pk=quote.pk)
 
 
 @login_required
@@ -463,21 +550,23 @@ def line_item_update(request, pk, item_pk):
 def line_item_delete(request, pk, item_pk):
     quote = get_quote(request.user, pk)
     if not quote_is_editable(quote):
-        return add_toast(
-            HttpResponse("", status=409),
-            f"Quote {quote.number} is locked and cannot be edited.",
-            "error",
-        )
+        message = f"Quote {quote.number} is locked and cannot be edited."
+        if is_hx(request):
+            return add_toast(HttpResponse("", status=409), message, "error")
+        return redirect_quote_detail(request, quote, message)
     item = get_owned(QuoteLineItem, request.user, item_pk, quote=quote)
     item.delete()
     quote.record_event(ActivityEvent.EVENT_EDITED, {"line_item": item_pk, "action": "deleted"})
     quote.refresh_from_db()
-    response = render(
-        request,
-        "quotes/partials/_line_item_delete_response.html",
-        {"quote": quote, "favorite_count": favorite_count(request.user)},
-    )
-    return add_toast(response, "Line item deleted.")
+    if is_hx(request):
+        response = render(
+            request,
+            "quotes/partials/_line_item_delete_response.html",
+            {"quote": quote, "favorite_count": favorite_count(request.user), "quote_is_editable": True},
+        )
+        return add_toast(response, "Line item deleted.")
+    messages.success(request, "Line item deleted.")
+    return redirect("quotes:quote_detail", pk=quote.pk)
 
 
 @login_required
@@ -499,6 +588,9 @@ def line_item_reorder(request, pk):
             parsed_ids.append(int(item_id))
         except (TypeError, ValueError):
             return HttpResponseBadRequest("Invalid line item id.")
+    expected_ids = set(quote.line_items.values_list("pk", flat=True))
+    if set(parsed_ids) != expected_ids:
+        return HttpResponseBadRequest("Reorder must include every line item exactly once.")
     with transaction.atomic():
         for index, item_id in enumerate(parsed_ids, start=1):
             QuoteLineItem.objects.filter(pk=item_id, quote=quote).update(position=index)
@@ -666,6 +758,7 @@ def public_quote(request, token):
                 "quotes/partials/_public_thank_you.html",
                 {"quote": quote, "transition_error": transition_error},
             )
+        return redirect("quotes:public_quote", token=token)
     elif quote.status == Quote.STATUS_SENT and not is_probable_bot(request):
         quote.transition_to(Quote.STATUS_VIEWED, ActivityEvent.EVENT_VIEWED, public_audit)
         quote.refresh_from_db()

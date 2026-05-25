@@ -5,7 +5,7 @@ A Django 5 quote workflow app for small service businesses. It supports client a
 ## Stack
 
 - **Python 3.12.7** — pinned in `runtime.txt` for Railway deployment
-- **Python 3.14** — used for local development and CI; the app is tested on both
+- **Python 3.12 and 3.14** — tested locally and in GitHub Actions (`.github/workflows/tests.yml`)
 - Django 5.1
 - Django templates, HTMX, Tailwind CSS
 - SQLite for development
@@ -27,7 +27,7 @@ A Django 5 quote workflow app for small service businesses. It supports client a
 - **HTMX showcase**: `innerHTML`, `outerHTML`, `beforeend`, `none`, `hx-swap-oob`, `hx-include`, and `HX-Trigger` toasts — see [docs/htmx-patterns.md](docs/htmx-patterns.md).
 - **Content negotiation**: HTML, partial HTML, and JSON on the same URLs.
 - **Validation**: model `clean()` enforces discount, expiry, and flat-discount-vs-subtotal rules; field validators reject negative tax rates and out-of-range values.
-- **Test suite**: 40+ tests covering ownership, money math, transitions, HTMX responses, content negotiation, PDF smoke, failure paths, and deployment config.
+- **Test suite**: 83 tests covering ownership, money math, transitions, HTMX responses, content negotiation, PDF smoke, failure paths, and deployment config.
 
 ## Local setup
 
@@ -64,9 +64,14 @@ A draft quote gets a public token the first time it is **successfully** sent. Th
 ## Known academic limitations
 
 - The public-view auto-transition relies on a user-agent heuristic; obscure preview/scanner bots may still trigger `Viewed`.
+- Accept/decline on the public link is available to anyone holding the URL — there is no separate client authentication step.
+- Audit metadata records the first `X-Forwarded-For` hop without validating a trusted proxy chain.
+- Django admin can inspect records but quote `status` is read-only there so the state machine cannot be bypassed casually.
+- Open signup with no email verification; duplicate usernames are blocked but email is optional.
 - Tailwind is loaded via the Play CDN; for a production deployment we would replace it with a built bundle.
 - Media uploads are served from local disk; on Railway with no persistent volume, logos do not survive restarts. A cloud storage backend would be required for a real deployment.
-- Reorder UI for line items is wired server-side (and tested); the drag-and-drop client glue is intentionally out of scope.
+- Reorder is exposed as a server endpoint only — no drag-and-drop UI (see [docs/htmx-patterns.md](docs/htmx-patterns.md)).
+- JSON responses share the same URLs as HTML; the `to_dict()` shape is not versioned (see ADR-0003).
 
 ## Commands
 
@@ -79,7 +84,7 @@ python manage.py collectstatic --noinput
 
 ## Deployment
 
-Railway uses `config.settings.prod` and reads the start command from `railway.toml`. `DJANGO_SETTINGS_MODULE` is set inline so `migrate`, `collectstatic`, and `gunicorn` all run with production settings.
+Railway uses `config.settings.prod` and reads the start command from `railway.toml` (not a Procfile). `DJANGO_SETTINGS_MODULE` is set inline so `migrate`, `collectstatic`, and `gunicorn` all run with production settings.
 
 ## Documentation
 
@@ -90,3 +95,7 @@ Railway uses `config.settings.prod` and reads the start command from `railway.to
 - ADR-0003 — Same-URL content negotiation.
 - ADR-0004 — Hand-rolled ReportLab PDF.
 - ADR-0005 — USD-only currency (internationalization out of scope).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

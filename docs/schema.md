@@ -19,7 +19,7 @@ The owning business's branding and defaults applied to new quotes.
 | tax_id | CharField(80) | optional |
 | default_tax_rate | Decimal(5,2) | validators: 0 ≤ x ≤ 100 |
 | default_terms | TextField | optional |
-| default_validity_days | PositiveInteger | default 30 |
+| default_validity_days | PositiveInteger | default 30; minimum 1 |
 
 ### Client (N ↔ 1 User)
 A customer/contact a quote can be issued to.
@@ -105,6 +105,10 @@ Append-only audit log.
 | event_type | CharField(20) choices | created/sent/viewed/accepted/declined/duplicated/edited/expired |
 | timestamp | DateTime | auto_now_add |
 | metadata | JSONField | per-event payload (IP, UA, public_url, etc.) |
+
+**Audit metadata:** `metadata.ip` is taken from the first segment of `X-Forwarded-For` when present, otherwise `REMOTE_ADDR`. This is basic audit metadata for activity logging — not authenticated identity. Behind Railway's proxy the forwarded IP is usually trustworthy; in local or non-proxy setups a client can spoof the header.
+
+**Bot detection:** Public `Sent → Viewed` transitions skip requests whose user-agent contains heuristic markers (`bot`, `spider`, `crawler`, etc.). This is an academic shortcut, not proof of automation — a rare legitimate UA substring (e.g. a browser extension) could theoretically match.
 
 ## Relationship summary
 

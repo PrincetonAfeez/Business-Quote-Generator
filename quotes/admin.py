@@ -35,7 +35,7 @@ class QuoteAdmin(admin.ModelAdmin):
     list_display = ("number", "client", "status", "issue_date", "expiry_date", "total", "owner", "is_favorite")
     search_fields = ("number", "client__name", "client__company", "owner__username")
     list_filter = ("status", "is_favorite", "issue_date")
-    readonly_fields = ("number", "public_token", "viewed_at", "accepted_at", "declined_at")
+    readonly_fields = ("number", "status", "public_token", "viewed_at", "accepted_at", "declined_at")
     inlines = [QuoteLineItemInline]
 
 

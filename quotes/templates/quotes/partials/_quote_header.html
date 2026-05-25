@@ -8,8 +8,10 @@
     </div>
     <span class="rounded-full px-2 py-1 text-xs font-medium {{ quote.status|status_badge }}">{{ quote.get_status_display }}</span>
   </div>
-  <details>
-    <summary class="cursor-pointer text-sm font-medium text-cyan-700">Edit header</summary>
-    {% include "quotes/partials/_quote_header_form.html" %}
-  </details>
+  {% if quote_is_editable %}
+    <details>
+      <summary class="cursor-pointer text-sm font-medium text-cyan-700">Edit header</summary>
+      {% include "quotes/partials/_quote_header_form.html" %}
+    </details>
+  {% endif %}
 </section>

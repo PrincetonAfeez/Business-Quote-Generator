@@ -8,6 +8,7 @@
     {{ form.as_p }}
     <button class="button-primary w-full justify-center" type="submit"><i data-lucide="log-in" class="h-4 w-4"></i> Log in</button>
     <a class="block text-center text-sm text-cyan-700" href="{% url 'password_reset' %}">Reset password</a>
+    <a class="block text-center text-sm text-cyan-700" href="{% url 'quotes:signup' %}">Create an account</a>
   </form>
 </section>
 {% endblock %}
