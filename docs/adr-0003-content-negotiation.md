@@ -1,4 +1,4 @@
-# ADR 0003: Same-URL Content Negotiation
+# ADR 0003: Same-URL Content Negotiation 0003
 
 ## Context
 
