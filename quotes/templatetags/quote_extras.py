@@ -1,3 +1,5 @@
+""" Template tags for the quotes app """
+
 from django import template
 
 from quotes.models import Quote, money
