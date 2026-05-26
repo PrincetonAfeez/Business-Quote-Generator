@@ -1,3 +1,5 @@
+""" Base settings for the project """
+
 import os
 from pathlib import Path
 
