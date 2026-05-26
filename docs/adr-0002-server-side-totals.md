@@ -1,4 +1,4 @@
-# ADR 0002: Server-Side Total Recalculation
+# ADR 0002: Server-Side Total Recalculation 0002
 
 ## Context
 
