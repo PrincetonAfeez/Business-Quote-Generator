@@ -1,3 +1,5 @@
+""" Test PDF for the quotes app """
+
 from decimal import Decimal
 
 import pytest
