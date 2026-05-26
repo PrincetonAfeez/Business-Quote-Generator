@@ -1,3 +1,5 @@
+""" PDF for the quotes app """
+
 from html import escape
 from io import BytesIO
 
