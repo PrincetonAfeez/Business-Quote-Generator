@@ -1,4 +1,4 @@
-# HTMX Patterns
+# HTMX Patterns 
 
 Static assets: toast JavaScript lives at `quotes/static/js/toasts.js` (served as `{% static 'js/toasts.js' %}`).
 
