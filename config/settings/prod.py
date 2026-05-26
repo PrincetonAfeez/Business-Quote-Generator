@@ -1,3 +1,5 @@
+""" Production settings for the project """
+
 import importlib.util
 import os
 from urllib.parse import urlparse
