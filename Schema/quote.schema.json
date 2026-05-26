@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-project": "Business Quote Generator",
+  "x-note": "Academic schema summary derived from Django models; migrations remain the database source of truth.",
+  "title": "Quote",
+  "type": "object",
+  "required": [
+    "id",
+    "owner_id",
+    "number",
+    "client_id",
+    "status",
+    "issue_date",
+    "expiry_date",
+    "tax_rate",
+    "discount_type",
+    "discount_value",
+    "subtotal",
+    "tax_amount",
+    "discount_amount",
+    "total"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "owner_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "number": {
+      "type": "string",
+      "pattern": "^Q-\\\\d{4}-\\\\d{4}$",
+      "description": "Per-owner, per-year quote number."
+    },
+    "client_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Protected foreign key to Client."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "sent",
+        "viewed",
+        "accepted",
+        "declined",
+        "expired"
+      ],
+      "default": "draft"
+    },
+    "issue_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "expiry_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Must be after issue_date."
+    },
+    "tax_rate": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Decimal 0.00 through 100.00.",
+      "minimum_note": "0.00",
+      "maximum_note": "100.00"
+    },
+    "discount_type": {
+      "type": "string",
+      "enum": [
+        "none",
+        "percent",
+        "flat"
+      ],
+      "default": "none"
+    },
+    "discount_value": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": ">= 0; percent <= 100; flat <= subtotal; zero when discount_type is none.",
+      "minimum_note": "0.00"
+    },
+    "subtotal": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Calculated subtotal."
+    },
+    "tax_amount": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Calculated tax amount."
+    },
+    "discount_amount": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Calculated discount amount."
+    },
+    "total": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Calculated total."
+    },
+    "notes": {
+      "type": "string"
+    },
+    "terms": {
+      "type": "string"
+    },
+    "public_token": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 32,
+      "description": "Unique optional public link token."
+    },
+    "viewed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "accepted_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "declined_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "is_favorite": {
+      "type": "boolean",
+      "default": false
+    },
+    "archived_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "constraints": [
+    "Unique(owner_id, number).",
+    "client.owner_id must match quote.owner_id.",
+    "Allowed transitions: draft->sent/expired; sent->viewed/accepted/declined/expired; viewed->accepted/declined/expired."
+  ],
+  "additionalProperties": false
+}

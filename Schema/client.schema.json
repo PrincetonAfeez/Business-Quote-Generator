@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-project": "Business Quote Generator",
+  "x-note": "Academic schema summary derived from Django models; migrations remain the database source of truth.",
+  "title": "Client",
+  "type": "object",
+  "required": [
+    "id",
+    "owner_id",
+    "name",
+    "email",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "owner_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "company": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "email": {
+      "type": "string",
+      "description": "Optional; normalized to lowercase; unique per owner when non-empty."
+    },
+    "phone": {
+      "type": "string",
+      "maxLength": 50
+    },
+    "billing_address": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "constraints": [
+    "Unique(owner_id, email) when email is not empty."
+  ],
+  "additionalProperties": false
+}

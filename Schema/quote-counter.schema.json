@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-project": "Business Quote Generator",
+  "x-note": "Academic schema summary derived from Django models; migrations remain the database source of truth.",
+  "title": "QuoteCounter",
+  "type": "object",
+  "required": [
+    "id",
+    "owner_id",
+    "year",
+    "last_number"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "owner_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "year": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "last_number": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "constraints": [
+    "Unique(owner_id, year)."
+  ],
+  "additionalProperties": false
+}

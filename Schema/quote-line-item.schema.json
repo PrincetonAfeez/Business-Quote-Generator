@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-project": "Business Quote Generator",
+  "x-note": "Academic schema summary derived from Django models; migrations remain the database source of truth.",
+  "title": "QuoteLineItem",
+  "type": "object",
+  "required": [
+    "id",
+    "quote_id",
+    "description",
+    "quantity",
+    "unit_price",
+    "line_total",
+    "position"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "quote_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "catalog_item_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Decimal >= 0.01.",
+      "minimum_note": "0.01"
+    },
+    "unit_price": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Decimal >= 0.00.",
+      "minimum_note": "0.00"
+    },
+    "line_total": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "quantity * unit_price rounded to cents."
+    },
+    "position": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "constraints": [
+    "If catalog_item_id is present, catalog_item.owner_id must match quote.owner_id.",
+    "Quote totals are recalculated on save/delete."
+  ],
+  "additionalProperties": false
+}

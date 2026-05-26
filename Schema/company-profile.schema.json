@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-project": "Business Quote Generator",
+  "x-note": "Academic schema summary derived from Django models; migrations remain the database source of truth.",
+  "title": "CompanyProfile",
+  "type": "object",
+  "required": [
+    "id",
+    "owner_id",
+    "business_name",
+    "default_tax_rate",
+    "default_validity_days"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "owner_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "One-to-one owner user id."
+    },
+    "business_name": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "logo": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional uploaded logo path."
+    },
+    "address": {
+      "type": "string"
+    },
+    "tax_id": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "default_tax_rate": {
+      "type": "string",
+      "pattern": "^\\\\d+(\\\\.\\\\d{2})$",
+      "description": "Decimal 0.00 through 100.00.",
+      "minimum_note": "0.00",
+      "maximum_note": "100.00"
+    },
+    "default_terms": {
+      "type": "string"
+    },
+    "default_validity_days": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 30
+    }
+  },
+  "additionalProperties": false
+}
