@@ -1,3 +1,5 @@
+""" Test views extra for the quotes app """
+
 from decimal import Decimal
 from unittest import mock
 
