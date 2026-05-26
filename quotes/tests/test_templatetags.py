@@ -1,3 +1,5 @@
+""" Test templatetags for the quotes app """
+
 from decimal import Decimal
 
 import pytest
