@@ -1,3 +1,5 @@
+""" Admin for the quotes app """
+
 from django.contrib import admin
 
 from .models import ActivityEvent, CatalogItem, Client, CompanyProfile, Quote, QuoteCounter, QuoteLineItem
