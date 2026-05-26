@@ -1,3 +1,5 @@
+""" Test fixtures for the quotes app """
+
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
