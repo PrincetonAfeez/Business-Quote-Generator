@@ -1,4 +1,4 @@
-# ADR 0006: Public Bearer-Token Access
+# ADR 0006: Public Bearer-Token Access 0006
 
 ## Context
 
