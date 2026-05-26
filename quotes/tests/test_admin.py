@@ -1,3 +1,5 @@
+""" Test admin for the quotes app """
+
 import pytest
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import User
