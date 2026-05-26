@@ -1,3 +1,5 @@
+""" Forms for the quotes app """
+
 from datetime import timedelta
 from decimal import Decimal
 
