@@ -1,3 +1,5 @@
+""" Models for the quotes app """
+
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
