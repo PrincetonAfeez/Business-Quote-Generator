@@ -1,4 +1,4 @@
-# Data Model
+# Data Model 
 
 This document is a human-readable summary of the schema in `quotes/models.py` for grading. It complements the Django migrations, which are the source of truth.
 
