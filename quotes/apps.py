@@ -1,3 +1,5 @@
+""" Apps for the quotes app """
+
 from django.apps import AppConfig
 
 
