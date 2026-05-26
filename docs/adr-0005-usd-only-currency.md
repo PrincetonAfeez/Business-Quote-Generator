@@ -1,4 +1,4 @@
-# ADR 0005: USD Only — Currency Out of Scope
+# ADR 0005: USD Only — Currency Out of Scope 0005
 
 ## Context
 
